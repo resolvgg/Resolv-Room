@@ -35,12 +35,19 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 if command -v pnpm >/dev/null 2>&1; then
-  pn() { pnpm "$@"; }
+  :
 elif command -v corepack >/dev/null 2>&1; then
-  pn() { corepack pnpm "$@"; }
+  # The project's scripts call `pnpm` themselves, so it must exist on PATH: use a temporary shim.
+  SHIM="$(mktemp -d)"
+  trap 'rm -rf "$SHIM"' EXIT
+  printf '#!/bin/sh\nexec corepack pnpm "$@"\n' > "$SHIM/pnpm"
+  chmod +x "$SHIM/pnpm"
+  PATH="$SHIM:$PATH"
+  export PATH
 else
   die "pnpm is required. Install it with:  npm install -g pnpm   (then run this again)"
 fi
+pn() { pnpm "$@"; }
 
 # --- download -------------------------------------------------------------
 if [ -d "$DIR/.git" ]; then
@@ -89,6 +96,7 @@ say "Starting the guided setup (resolvroom init)..."
 say ""
 # When piped from curl, stdin is the script itself; give init the real terminal.
 if { true < /dev/tty; } 2>/dev/null; then
+  [ -n "${SHIM:-}" ] && rm -rf "$SHIM"
   exec "$BIN_DIR/resolvroom" init "$@" < /dev/tty
 fi
 say "No terminal available here. Run this yourself:  resolvroom init"
