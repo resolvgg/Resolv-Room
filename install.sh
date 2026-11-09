@@ -34,16 +34,19 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 22 ] 2>/dev/null || die "Node.js 22 or newer is required (found $(node -v)): https://nodejs.org"
 
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-if command -v pnpm >/dev/null 2>&1; then
+if command -v pnpm >/dev/null 2>&1 && pnpm --version >/dev/null 2>&1; then
   :
 elif command -v corepack >/dev/null 2>&1; then
-  # The project's scripts call `pnpm` themselves, so it must exist on PATH: use a temporary shim.
-  SHIM="$(mktemp -d)"
-  trap 'rm -rf "$SHIM"' EXIT
+  # Some build steps call `pnpm` by name, so it must exist on PATH. Put a small shim next to the install
+  # (not in /tmp, which may be mounted noexec).
+  SHIM="$(dirname "$DIR")/.shim"
+  mkdir -p "$SHIM"
   printf '#!/bin/sh\nexec corepack pnpm "$@"\n' > "$SHIM/pnpm"
   chmod +x "$SHIM/pnpm"
   PATH="$SHIM:$PATH"
   export PATH
+  "$SHIM/pnpm" --version >/dev/null 2>&1 \
+    || die "could not run pnpm through corepack. Install pnpm with:  npm install -g pnpm   (then run this again)"
 else
   die "pnpm is required. Install it with:  npm install -g pnpm   (then run this again)"
 fi
@@ -63,7 +66,7 @@ fi
 # --- build ----------------------------------------------------------------
 say "Installing dependencies and building (a minute or two)..."
 LOG="$(mktemp 2>/dev/null || echo /tmp/resolvroom-install.log)"
-if ! ( cd "$DIR" && pn install --frozen-lockfile && pn build ) >"$LOG" 2>&1; then
+if ! ( cd "$DIR" && echo "using pnpm: $(command -v pnpm) $(pnpm --version)" && pn install --frozen-lockfile && pn -r build ) >"$LOG" 2>&1; then
   tail -n 25 "$LOG" >&2
   die "the build failed. Full log: $LOG"
 fi
@@ -96,7 +99,6 @@ say "Starting the guided setup (resolvroom init)..."
 say ""
 # When piped from curl, stdin is the script itself; give init the real terminal.
 if { true < /dev/tty; } 2>/dev/null; then
-  [ -n "${SHIM:-}" ] && rm -rf "$SHIM"
   exec "$BIN_DIR/resolvroom" init "$@" < /dev/tty
 fi
 say "No terminal available here. Run this yourself:  resolvroom init"
