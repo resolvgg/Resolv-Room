@@ -43,6 +43,16 @@ Any tagged node can burn the attempts of an open window (a denial of service on 
 
 Where to reach a peer: `peers[].endpoint` in the config, otherwise `http://<peer>:7777` (MagicDNS). Pairing endpoints are not specified yet (see `docs/onboarding.md`).
 
+### 3.2 File transfer
+
+A peer on the allowlist can offer files. Nothing is written before the receiving human accepts, and only inside a new folder of the receiver's inbox.
+
+1. `POST /v1/transfers` with a manifest: `{ v, transfer_id (UUID), root, message?, files: [{ path, size, sha256, exec? }], total_bytes }`. Paths are relative POSIX paths with no empty, `.` or `..` segments, no backslash, NUL or control characters, at most 1024 characters; no duplicates (case-insensitive) and no path that is also a folder of another. Limits: 50 000 files, 2 GiB. The receiver validates, then asks its human (same prompt rules as `ask`, with the file count, size, destination and a sample of paths). The request stays open until the answer. `200 { token, dest }` on yes; `403 declined` on no or timeout; `403 not_allowed` if the sender is not on the allowlist.
+2. `PUT /v1/transfers/<id>/files/<index>` with the raw bytes and header `x-resolvroom-transfer-token`. The receiver streams into a private staging folder and checks the size and SHA-256 against the manifest; a mismatch deletes the file and returns `400`.
+3. `POST /v1/transfers/<id>/complete`: once every file arrived, the staging folder is renamed to `<inbox>/<sender>/<YYYYMMDD-HHMMSS>-<root>/` and `200 { dest, files, bytes }` is returned. An unfinished transfer is dropped after 30 minutes without progress.
+
+Every step checks that the connection identity (`whois`) is the peer that made the offer. Senders MUST leave out the hard deny list and secret file names (section 8 of the permissions spec) whatever the user asks, and SHOULD skip symlinks. The reference sender also leaves out `node_modules`, build outputs, caches and `.git` unless asked. A consult from a peer may read what that same peer sent (`<inbox>/<peer>`), read-only in `ask` mode.
+
 ## 4. Envelope
 
 Schema: [`schemas/envelope.schema.json`](schemas/envelope.schema.json).

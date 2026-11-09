@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { basename, resolve, sep } from "node:path";
-import { alwaysDenyPatterns, globToRegExp, normalizePath } from "@resolvroom/protocol";
+import { resolve, sep } from "node:path";
+import { globToRegExp, isAlwaysDenied, normalizePath } from "@resolvroom/protocol";
 import type { Capabilities } from "@resolvroom/protocol";
 import type { AccessRequest, ApprovalAnswer } from "@resolvroom/core";
 
@@ -27,7 +27,6 @@ export interface AccessContext {
 const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
 const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const NETWORK_TOOLS = new Set(["WebFetch", "WebSearch"]);
-const SECRET_NAME = /^(\.env(\..*)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|ed25519|ecdsa|dsa)(\.pub)?|\.netrc|\.pgpass|\.npmrc|\.pypirc|credentials(\.json)?)$/i;
 
 function realOrSelf(p: string): string {
   try {
@@ -43,8 +42,7 @@ function inside(path: string, folder: string): boolean {
 
 /** Secrets and system files: never readable, whatever the human answers. */
 export function alwaysDenied(path: string, home: string): boolean {
-  if (SECRET_NAME.test(basename(path))) return true;
-  return alwaysDenyPatterns(home).some((g) => globToRegExp(g).test(path));
+  return isAlwaysDenied(path, home);
 }
 
 function pathOf(input: Record<string, unknown>): string | undefined {

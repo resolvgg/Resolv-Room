@@ -1,13 +1,28 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ConsultOutcome } from "@resolvroom/core";
-import type { ConsultRequest, PeerSummary } from "@resolvroom/daemon";
+import { resolve } from "node:path";
+import type { ConsultRequest, PeerSummary, SendOutcome, SendRequest } from "@resolvroom/daemon";
 import { roomInstructions } from "./room.js";
 
 /** What the MCP server needs from the local daemon. `ControlClient` implements it. */
 export interface DaemonApi {
   consult(req: ConsultRequest, signal?: AbortSignal): Promise<ConsultOutcome>;
   peers(): Promise<PeerSummary[]>;
+  send?(req: SendRequest): Promise<SendOutcome>;
+}
+
+export function formatSend(o: SendOutcome): string {
+  if (o.status === "error") return `Sending to ${o.peer} failed: ${o.message}`;
+  const sk = o.skipped;
+  const notes = [
+    sk.secrets.length ? `${sk.secrets.length} secret file(s) left out (${sk.secrets.slice(0, 5).join(", ")}${sk.secrets.length > 5 ? ", …" : ""})` : "",
+    sk.excluded ? `${sk.excluded} dependency/build/.git folder(s) left out` : "",
+    sk.links ? `${sk.links} symlink(s) skipped` : "",
+  ].filter(Boolean);
+  const tail = notes.length ? `\nNot sent: ${notes.join("; ")}.` : "";
+  if (o.status === "declined") return `${o.peer} did not accept the files: ${o.message}.${tail}`;
+  return `Sent ${o.files} file(s) to ${o.peer}. They are in ${o.dest} on that machine; a consult to ${o.peer} can read them.${tail}`;
 }
 
 export function formatOutcome(o: ConsultOutcome): string {
@@ -63,6 +78,41 @@ export function createMcpServer(api: DaemonApi, version = "0.0.0"): McpServer {
       }
     },
   );
+
+  if (api.send) {
+    const send = api.send.bind(api);
+    server.registerTool(
+      "send_files",
+      {
+        title: "Send files to another machine",
+        description:
+          "Copy files or folders from this machine to a Resolv Room peer. The owner of that machine must accept; the files land in its " +
+          "Resolv Room inbox (never elsewhere) and a later consult to that peer can read them. Secrets (.env, keys, ~/.ssh…) are always " +
+          "left out; node_modules/build folders and .git are left out unless asked.",
+        inputSchema: {
+          peer: z.string().min(1).describe("Name of the peer (see the `peers` tool)."),
+          paths: z.array(z.string().min(1)).min(1).max(50).describe("Files or folders to send (absolute, or relative to the current folder)."),
+          message: z.string().max(2000).optional().describe("Short note shown to the receiving human."),
+          include_git: z.boolean().optional().describe("Also send .git folders."),
+          include_deps: z.boolean().optional().describe("Also send node_modules, build output and caches."),
+        },
+      },
+      async ({ peer, paths, message, include_git, include_deps }) => {
+        try {
+          const out = await send({
+            peer,
+            paths: paths.map((p) => resolve(process.cwd(), p)),
+            ...(message ? { message } : {}),
+            ...(include_git ? { include_git } : {}),
+            ...(include_deps ? { include_deps } : {}),
+          });
+          return { content: [{ type: "text" as const, text: formatSend(out) }], isError: out.status === "error" };
+        } catch (err) {
+          return { content: [{ type: "text" as const, text: `Sending failed: ${(err as Error).message}` }], isError: true };
+        }
+      },
+    );
+  }
 
   server.registerTool(
     "peers",

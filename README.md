@@ -41,6 +41,14 @@ The agent works on your request first, builds a proposal, sends it to the agent 
 
 In Hermes Agent, `resolvroom install-hermes` registers the same MCP server (`hermes mcp add`) and a `room` skill, so `/room …` works there too.
 
+## Send files
+
+```
+resolvroom send isantoandrethinkpadai ~/projetos/igestao -m "for review"
+```
+
+The owner of the other machine sees what is coming (count, size, sample of paths) and accepts or declines. Accepted files land in `~/resolvroom-inbox/<your machine>/<date>-<name>/` there, never anywhere else, checked by SHA-256. Secrets (`.env`, keys, `~/.ssh`…) are never sent; `node_modules`, build output and `.git` are left out unless you add `--include-deps` / `--include-git`. Agents can do the same with the `send_files` tool (your agent asks you first), and a consult can then read what you sent.
+
 ## Agents that answer
 
 The daemon wakes one local agent to answer requests from other machines (`resolvroom start --agent …`, chosen in `init`):
@@ -103,7 +111,7 @@ docs/            onboarding flow, testing guide, design notes
 | 3 | Tailscale transport: `whois`, allowlist, pairing by code | implemented, untested on a real tailnet |
 | 4 | Local MCP server and `/room` | done |
 | 5 | Runners | Claude Code, Hermes (text only) and mock done; OpenClaw planned; Hermes file access via a confined backend planned |
-| 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`, `install-hermes`, `update`; `watch`, `export` planned |
+| 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`, `install-hermes`, `update`, `send`; `watch`, `export` planned |
 | 7 | Multi-round `room`, per-action approval, first release | per-action approval for reads outside the folders done (Claude Code); the rest planned |
 
 ## Contributing

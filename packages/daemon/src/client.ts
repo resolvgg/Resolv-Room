@@ -2,7 +2,11 @@ import type { DaemonConfig, Envelope } from "@resolvroom/protocol";
 import { PROTOCOL_VERSION } from "@resolvroom/protocol";
 import { peerMatches } from "@resolvroom/core";
 import type { PeerClient, PingInfo } from "@resolvroom/core";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { DEV_PEER_HEADER, DEV_TAGS_HEADER } from "./identity.js";
+import { TRANSFER_TOKEN_HEADER } from "./transfer.js";
+import type { TransferOffer } from "./transfer.js";
 
 export const DEFAULT_PORT = 7777;
 
@@ -72,6 +76,31 @@ export class HttpPeerClient implements PeerClient {
       this.o.sendTimeoutMs ?? 10_000,
     );
     return (await res.json()) as { peer: string };
+  }
+
+  /** Offers files to `peer`. Waits while its owner decides (up to their prompt timeout). */
+  async offerTransfer(peer: string, offer: TransferOffer, timeoutMs = 10 * 60_000): Promise<{ token: string; dest: string }> {
+    const res = await this.request(`${this.endpointFor(peer)}/v1/transfers`, { method: "POST", headers: this.headers(), body: JSON.stringify(offer) }, timeoutMs);
+    return (await res.json()) as { token: string; dest: string };
+  }
+
+  async uploadFile(peer: string, id: string, index: number, token: string, path: string, size: number): Promise<void> {
+    const headers = { ...this.headers(), "content-type": "application/octet-stream", "content-length": String(size), [TRANSFER_TOKEN_HEADER]: token };
+    const body = Readable.toWeb(createReadStream(path)) as unknown as RequestInit["body"];
+    await this.request(
+      `${this.endpointFor(peer)}/v1/transfers/${id}/files/${index}`,
+      { method: "PUT", headers, body, duplex: "half" } as RequestInit,
+      Math.max(60_000, Math.ceil(size / (256 * 1024)) * 1000),
+    );
+  }
+
+  async completeTransfer(peer: string, id: string, token: string): Promise<{ dest: string; files: number; bytes: number }> {
+    const res = await this.request(
+      `${this.endpointFor(peer)}/v1/transfers/${id}/complete`,
+      { method: "POST", headers: { ...this.headers(), [TRANSFER_TOKEN_HEADER]: token }, body: "{}" },
+      60_000,
+    );
+    return (await res.json()) as { dest: string; files: number; bytes: number };
   }
 
   private async request(url: string, init: RequestInit, timeoutMs: number, outer?: AbortSignal): Promise<Response> {

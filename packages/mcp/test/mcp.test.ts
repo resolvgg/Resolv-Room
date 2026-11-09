@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -104,8 +104,9 @@ describe("through real daemons", () => {
 
   it("MCP consult tool -> control socket -> daemon alpha -> HTTP -> daemon beta -> mock agent", async () => {
     const mk = async (name: string) => {
+      const home = mkdtempSync(join(tmpdir(), "rr-mcp-"));
       const d = await startDaemon({
-        home: mkdtempSync(join(tmpdir(), "rr-mcp-")), name, bind: "127.0.0.1", port: 0, identity: "dev",
+        home, inbox: join(home, "inbox"), userHome: home, name, bind: "127.0.0.1", port: 0, identity: "dev",
         runner: new MockRunner({ name, delayMs: 10 }),
         prompter: { approve: async () => "allow" as const },
         heartbeatMs: 50, onError: () => undefined,
@@ -125,5 +126,14 @@ describe("through real daemons", () => {
     expect(textOf(r)).toContain("Consult with beta: solved");
     expect(textOf(r)).toContain("[mock agent on beta]");
     expect(textOf(r)).toContain("I changed the cache key.");
+
+    const src = mkdtempSync(join(tmpdir(), "rr-mcp-src-"));
+    writeFileSync(join(src, "app.ts"), "export {}");
+    writeFileSync(join(src, ".env"), "S=1");
+    const sent = await c.callTool({ name: "send_files", arguments: { peer: "beta", paths: [src], message: "please review" } });
+    expect(sent.isError).toBe(false);
+    expect(textOf(sent)).toMatch(/Sent 1 file\(s\) to beta/);
+    expect(textOf(sent)).toContain("1 secret file(s) left out (.env)");
+    expect(existsSync(join(beta.store.home, "inbox", "alpha"))).toBe(true);
   });
 });

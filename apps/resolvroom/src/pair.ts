@@ -69,6 +69,7 @@ function show(a: PendingApproval): string {
     peer: a.peer, sessionId: a.session_id, goal: a.goal, proposal: a.proposal, mode: a.mode,
     capabilities: { read: false, write: false, exec: false, network: false }, access: a.access, timeoutS: a.timeout_s,
     ...(a.action ? { action: a.action } : {}),
+    ...(a.transfer ? { transfer: a.transfer } : {}),
     signal: new AbortController().signal,
   });
 }

@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { ConfigStore, resolveHome } from "@resolvroom/core";
 import { ControlClient, ControlError, QueuePrompter, TerminalPrompter, startDaemon, tailscaleSelf } from "@resolvroom/daemon";
 import type { DaemonOptions } from "@resolvroom/daemon";
-import { roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
+import { formatSend, roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
 import type { PermissionProfile } from "@resolvroom/protocol";
 import { ClaudeCodeRunner, HermesRunner, MockRunner, runProcess } from "@resolvroom/runner";
 import { installHermesCommand } from "./hermes.js";
@@ -46,9 +46,13 @@ Setup
 Run
   start [options]            Run the daemon (keep it open: it asks you before agents act in ask mode)
        --workdir <dir>         folder the agent can read once you approve (default: current folder)
+       --inbox <dir>           where received files land (default ~/resolvroom-inbox)
        --agent claude-code|hermes|mock
                                hermes answers from the request text only (its file tools cannot be confined to a folder)
   consult <peer> <goal...> [--proposal <text>] [--ask-only]
+  send <peer> <path>... [-m note] [--include-git] [--include-deps]
+                             Send files/folders; the other owner accepts; they land in its ~/resolvroom-inbox/<you>/
+                             (secrets are never sent; node_modules/build/.git left out unless asked)
   approvals [--watch]        Requests waiting for your OK (daemons without a terminal); approve <id> | deny <id>
   mcp                        MCP server on stdio (used by Claude Code)
   status                     Ask the running daemon
@@ -81,6 +85,8 @@ export async function main(argv: string[], io: Io): Promise<number> {
         return await ceilingCommand(rest, io);
       case "consult":
         return await consultCommand(rest, io);
+      case "send":
+        return await sendCommand(rest, io);
       case "status":
         return await statusCommand(io);
       case "mcp":
@@ -223,6 +229,27 @@ function ceilingCommand(args: string[], io: Io): number {
 
 // ───────────────────────────────── consult ─────────────────────────────────
 
+async function sendCommand(args: string[], io: Io): Promise<number> {
+  const { values, positionals } = opts(args, {
+    message: { type: "string", short: "m" },
+    "include-git": { type: "boolean" },
+    "include-deps": { type: "boolean" },
+  });
+  const [peer, ...paths] = positionals;
+  if (!peer || paths.length === 0) throw new UsageError('usage: resolvroom send <peer> <file-or-folder>... [-m "note"] [--include-git] [--include-deps]');
+  const client = new ControlClient(store(io).socketPath);
+  io.out(`Preparing and offering the files to ${peer}... (its owner has to accept)\n`);
+  const out = await client.send({
+    peer,
+    paths: paths.map((p) => resolve(io.cwd, p)),
+    ...(values.message ? { message: values.message } : {}),
+    ...(values["include-git"] ? { include_git: true } : {}),
+    ...(values["include-deps"] ? { include_deps: true } : {}),
+  });
+  io.out(`${formatSend(out)}\n`);
+  return out.status === "sent" ? 0 : 1;
+}
+
 async function consultCommand(args: string[], io: Io): Promise<number> {
   const { values, positionals } = opts(args, { proposal: { type: "string" }, "ask-only": { type: "boolean" } });
   const [peer, ...goalWords] = positionals;
@@ -259,6 +286,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
     agent: { type: "string" },
     "claude-command": { type: "string" },
     "hermes-command": { type: "string" },
+    inbox: { type: "string" },
     "insecure-dev-identity": { type: "boolean" },
     "dev-tags": { type: "string" },
     "stdin-prompts": { type: "boolean" },
@@ -281,6 +309,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
   }
 
   const workdir = resolve(io.cwd, values.workdir ?? ".");
+  const inbox = resolve(io.cwd, values.inbox ?? io.env.RESOLVROOM_INBOX ?? join(io.env.HOME ?? homedir(), "resolvroom-inbox"));
   const agent = values.agent ?? "claude-code";
   if (agent === "claude-code" || agent === "hermes") {
     const problem = workdirProblem(workdir, io.env.HOME ?? homedir());
@@ -290,7 +319,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
     agent === "mock"
       ? new MockRunner({ name })
       : agent === "claude-code"
-        ? new ClaudeCodeRunner({ workdir, ...(values["claude-command"] ? { command: values["claude-command"] } : {}) })
+        ? new ClaudeCodeRunner({ workdir, inbox, ...(values["claude-command"] ? { command: values["claude-command"] } : {}) })
         : agent === "hermes"
           ? new HermesRunner({ workdir, ...(values["hermes-command"] ? { command: values["hermes-command"] } : {}) })
           : null;
@@ -310,6 +339,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
     devTags: values["dev-tags"] ? values["dev-tags"].split(",") : [],
     runner,
     prompter,
+    inbox,
     ...(queue ? { approvals: queue } : {}),
     onError: (e) => io.err(`resolvroom: ${String(e)}\n`),
   };

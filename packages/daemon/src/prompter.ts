@@ -13,6 +13,24 @@ export function sanitizeForTerminal(text: string, maxChars = 1500): string {
 
 export function formatApproval(req: ApprovalRequest): string {
   const indent = (s: string): string => s.split("\n").map((l) => `    ${l}`).join("\n");
+  if (req.transfer) {
+    const t = req.transfer;
+    const mb = t.bytes < 1024 * 1024 ? `${(t.bytes / 1024).toFixed(1)} KB` : `${(t.bytes / 1024 / 1024).toFixed(1)} MB`;
+    return [
+      "",
+      "┌─ Resolv Room: a peer wants to send you files ─────────────────────",
+      `│ From:    ${sanitizeForTerminal(req.peer, 100)}`,
+      `│ What:    ${t.files} file(s), ${mb}, folder "${sanitizeForTerminal(t.root, 100)}"`,
+      `│ Save to: ${sanitizeForTerminal(t.dest, 400)}`,
+      ...(t.message ? ["│ Note:", indent(sanitizeForTerminal(t.message, 600))] : []),
+      "│ Some of the files:",
+      indent(t.sample.map((s) => sanitizeForTerminal(s, 200)).join("\n") + (t.files > t.sample.length ? `\n… and ${t.files - t.sample.length} more` : "")),
+      "│",
+      "│ Nothing is written until you say yes, and only inside that folder.",
+      `│ No answer in ${req.timeoutS}s means NO.`,
+      "└───────────────────────────────────────────────────────────────────",
+    ].join("\n");
+  }
   if (req.action) {
     return [
       "",

@@ -157,7 +157,7 @@ describe("real processes", () => {
       }),
     );
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(["consult", "peers"]);
+    expect(tools).toEqual(["consult", "peers", "send_files"]);
     const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
     expect(prompts).toEqual(["room"]);
     const r = (await client.callTool({ name: "consult", arguments: { peer: "beta", goal: "g", proposal: "check my fix" } })) as {

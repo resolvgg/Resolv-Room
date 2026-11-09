@@ -9,6 +9,20 @@ export const TAG_AUTO = "tag:resolvroom-auto";
  * Hard deny list. No permission profile can override it.
  * Patterns are matched case-insensitively against absolute, normalized, symlink-resolved paths.
  */
+/** File names that hold secrets wherever they are (stricter than the globs below: also catches files outside a root). */
+const SECRET_FILE_NAME = /^(\.env(\..*)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|ed25519|ecdsa|dsa)(\.pub)?|\.netrc|\.pgpass|\.npmrc|\.pypirc|credentials(\.json)?)$/i;
+
+export function isSecretFileName(name: string): boolean {
+  return SECRET_FILE_NAME.test(name);
+}
+
+/** True for a resolved absolute path that no profile, prompt or transfer may ever expose. */
+export function isAlwaysDenied(path: string, home: string): boolean {
+  const p = toPosix(path);
+  if (isSecretFileName(p.slice(p.lastIndexOf("/") + 1))) return true;
+  return alwaysDenyPatterns(home).some((g) => globToRegExp(g).test(p));
+}
+
 export function alwaysDenyPatterns(home: string): string[] {
   const h = toPosix(home).replace(/\/+$/, "");
   return [

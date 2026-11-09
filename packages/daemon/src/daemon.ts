@@ -10,6 +10,9 @@ import type { IdentityProvider } from "./identity.js";
 import { createTransportServer } from "./server.js";
 import { PairingManager } from "./pairing.js";
 import type { QueuePrompter } from "./approvals.js";
+import { TransferReceiver } from "./transfer.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface DaemonOptions {
   home: string;
@@ -30,6 +33,10 @@ export interface DaemonOptions {
   identityProvider?: IdentityProvider;
   heartbeatMs?: number;
   onError?: (error: unknown) => void;
+  /** Where received files land (inbox/<peer>/<time>-<name>/). Default ~/resolvroom-inbox. */
+  inbox?: string;
+  /** Home folder used by the secrets filter when sending. Default os.homedir(). */
+  userHome?: string;
 }
 
 export interface DaemonHandle {
@@ -70,7 +77,9 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const identity = o.identityProvider ?? (o.identity === "dev" ? new DevIdentityProvider() : new TailscaleIdentityProvider());
 
   const pairing = new PairingManager({ store, requireTag: o.identity === "tailscale", trustReplyEndpoint: o.identity === "dev" });
-  const transport = createTransportServer({ engine, identity, selfName: o.name, agents, pairing });
+  const userHome = o.userHome ?? homedir();
+  const transfers = new TransferReceiver({ inbox: o.inbox ?? join(userHome, "resolvroom-inbox"), config: () => store.load(), prompter: o.prompter, logs });
+  const transport = createTransportServer({ engine, identity, selfName: o.name, agents, pairing, transfers });
   await new Promise<void>((resolve, reject) => {
     transport.once("error", reject);
     transport.listen(o.port, o.bind, () => {
@@ -84,6 +93,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     store,
     pairing,
     pairClient: client,
+    home: userHome,
     ...(o.approvals ? { approvals: o.approvals } : {}),
   });
   try {
@@ -101,6 +111,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     store,
     engine,
     async close() {
+      transfers.close();
       await Promise.all([closeServer(transport), closeServer(control)]);
       try {
         unlinkSync(store.socketPath);

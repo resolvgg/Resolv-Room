@@ -68,6 +68,8 @@ export interface ApprovalRequest {
   timeoutS: number;
   /** Set when this is a mid-run request to read one extra path, not the start of a session. */
   action?: AccessRequest;
+  /** Set when this is an offer to receive files, not a consult. */
+  transfer?: TransferSummary;
   /** Aborted when the prompt times out or the session ends. */
   signal: AbortSignal;
 }
@@ -112,4 +114,18 @@ export class NotAllowedError extends Error {
     super(`${peer} is not on the allowlist`);
     this.name = "NotAllowedError";
   }
+}
+
+/** What a file transfer offer contains, as shown to the receiving human. */
+export interface TransferSummary {
+  files: number;
+  bytes: number;
+  /** Top folder name chosen by the sender. */
+  root: string;
+  /** Folder on this machine where the files will be saved. */
+  dest: string;
+  /** A few of the paths, for the prompt. */
+  sample: string[];
+  /** Optional note from the sender. */
+  message?: string;
 }

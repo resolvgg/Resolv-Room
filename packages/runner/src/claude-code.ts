@@ -10,6 +10,7 @@ import { decideAccess } from "./access-policy.js";
 import type { AccessContext } from "./access-policy.js";
 import { alwaysDenyPatterns, globToRegExp, normalizePath } from "@resolvroom/protocol";
 import type { Capabilities, EffectivePermissions } from "@resolvroom/protocol";
+import { inboxDirFor } from "@resolvroom/core";
 import type { Runner, RunnerRequest, RunnerResult } from "@resolvroom/core";
 
 export interface ClaudeCodeRunnerOptions {
@@ -26,6 +27,11 @@ export interface ClaudeCodeRunnerOptions {
   extraArgs?: string[];
   /** Hard stop for one run, in addition to the session limit. Default 10 minutes. */
   timeoutMs?: number;
+  /**
+   * Inbox of received files. A consult from a peer can also read what THAT peer sent (inbox/<peer>), so you can send
+   * a project and then ask for a review of it.
+   */
+  inbox?: string;
 }
 
 const SECRET_READ_DENY = [
@@ -98,6 +104,14 @@ export class ClaudeCodeRunner implements Runner {
     return denied ? null : real;
   }
 
+  /** inbox/<peer> when it exists and is a safe folder: files that peer sent here earlier. */
+  private peerInbox(peer: string): string[] {
+    if (!this.opts.inbox) return [];
+    const dir = inboxDirFor(this.opts.inbox, peer);
+    const real = existsSync(dir) ? this.safeFolder(dir) : null;
+    return real ? [real] : [];
+  }
+
   restrict(p: EffectivePermissions): Capabilities | null {
     if (this.folders(p) === null) return null;
     const c = p.capabilities;
@@ -124,7 +138,7 @@ export class ClaudeCodeRunner implements Runner {
    *   bridge (`--permission-prompt-tool`) instead of being denied silently, so reads outside the folders can be
    *   approved by the local human one by one.
    */
-  buildArgs(p: EffectivePermissions, accessMcpConfig?: string): { args: string[]; cwd: string } {
+  buildArgs(p: EffectivePermissions, accessMcpConfig?: string, extraDirs: string[] = []): { args: string[]; cwd: string } {
     const folders = this.folders(p);
     const caps = this.restrict(p);
     if (!folders || !caps || !folders[0]) throw new Error("runner cannot honor these permissions");
@@ -148,7 +162,8 @@ export class ClaudeCodeRunner implements Runner {
       "--disallowedTools",
       ...SECRET_READ_DENY,
     ];
-    if (folders.length > 1) args.push("--add-dir", ...folders.slice(1));
+    const addDirs = [...folders.slice(1), ...extraDirs];
+    if (addDirs.length > 0) args.push("--add-dir", ...addDirs);
     args.push("--append-system-prompt", CONSULT_PREAMBLE);
     args.push(...(this.opts.extraArgs ?? []));
     return { args, cwd: folders[0] };
@@ -164,13 +179,14 @@ export class ClaudeCodeRunner implements Runner {
       if (req.signal.aborted) throw new Error("aborted");
       if (help.code === 0 && !/"manual"/.test(help.stdout) && /"default"/.test(help.stdout)) this.askMode = "default";
     }
-    const bridge = await startAccessBridge({ folders, caps, home: this.home, cwd: folders[0] ?? this.opts.workdir, granted: [],
+    const extra = this.peerInbox(req.peer);
+    const bridge = await startAccessBridge({ folders: [...folders, ...extra], caps, home: this.home, cwd: folders[0] ?? this.opts.workdir, granted: [],
       extraDeny: req.permissions.extraDeny,
       outOfScope: req.permissions.mode === "auto" ? req.permissions.outOfScope : "ask",
       ...(req.askAccess ? { ask: req.askAccess } : {}),
     });
     try {
-      const { args, cwd } = this.buildArgs(req.permissions, bridge.configPath);
+      const { args, cwd } = this.buildArgs(req.permissions, bridge.configPath, extra);
       const prompt = composePrompt(req.peer, req.goal, req.proposal);
       // Leave room for a human to answer an access question (Claude Code's own MCP tool timeout is shorter).
       const env = { ...process.env, MCP_TOOL_TIMEOUT: String(Math.max(Number(process.env.MCP_TOOL_TIMEOUT ?? 0), 15 * 60_000)) };

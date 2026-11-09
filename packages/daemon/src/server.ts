@@ -5,6 +5,8 @@ import { IdentityMismatchError, NotAllowedError, UnknownSessionError } from "@re
 import type { Engine } from "@resolvroom/core";
 import type { IdentityProvider } from "./identity.js";
 import type { PairingManager } from "./pairing.js";
+import { TRANSFER_TOKEN_HEADER, TransferError } from "./transfer.js";
+import type { TransferReceiver } from "./transfer.js";
 
 export interface TransportServerOptions {
   engine: Engine;
@@ -12,6 +14,7 @@ export interface TransportServerOptions {
   selfName: string;
   agents: string[];
   pairing?: PairingManager;
+  transfers?: TransferReceiver;
   maxBodyBytes?: number;
 }
 
@@ -46,12 +49,15 @@ export class BodyTooLarge extends Error {
 /** The peer-to-peer HTTP surface: GET /v1/ping and POST /v1/envelopes. */
 export function createTransportServer(o: TransportServerOptions): Server {
   const limit = o.maxBodyBytes ?? 1024 * 1024;
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     handle(req, res).catch(() => {
       if (!res.headersSent) sendJson(res, 500, errorBody("internal", "internal error"));
       else res.end();
     });
   });
+  // Large file uploads can take longer than Node's default 5 minutes per request.
+  server.requestTimeout = 60 * 60_000;
+  return server;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://x");
@@ -104,6 +110,40 @@ export function createTransportServer(o: TransportServerOptions): Server {
       if (verdict.ok) return sendJson(res, 200, { ok: true, peer: o.selfName });
       // Deliberately vague: no hint about whether a window is open or which part was wrong.
       return sendJson(res, verdict.locked ? 429 : 403, errorBody("pairing_failed", "pairing failed"));
+    }
+
+    if (o.transfers && url.pathname.startsWith("/v1/transfers")) {
+      const t = o.transfers;
+      const token = req.headers[TRANSFER_TOKEN_HEADER];
+      const tok = Array.isArray(token) ? token[0] : token;
+      try {
+        if (req.method === "POST" && url.pathname === "/v1/transfers") {
+          let json: unknown;
+          try {
+            json = JSON.parse(await readBody(req, 16 * 1024 * 1024));
+          } catch (err) {
+            if (err instanceof BodyTooLarge) return sendJson(res, 413, errorBody("protocol_violation", err.message));
+            return sendJson(res, 400, errorBody("protocol_violation", "body is not valid JSON"));
+          }
+          return sendJson(res, 200, await t.offer(identity, json));
+        }
+        const file = /^\/v1\/transfers\/([0-9a-f-]{36})\/files\/(\d{1,6})$/.exec(url.pathname);
+        if (req.method === "PUT" && file) {
+          await t.putFile(identity, file[1] ?? "", Number(file[2]), tok, req);
+          return sendJson(res, 200, {});
+        }
+        const done = /^\/v1\/transfers\/([0-9a-f-]{36})\/complete$/.exec(url.pathname);
+        if (req.method === "POST" && done) {
+          await readBody(req, 1024).catch(() => "");
+          return sendJson(res, 200, t.complete(identity, done[1] ?? "", tok));
+        }
+      } catch (err) {
+        if (err instanceof TransferError) {
+          req.resume();
+          return sendJson(res, err.status, errorBody(err.code, err.message));
+        }
+        throw err;
+      }
     }
 
     sendJson(res, 404, errorBody("protocol_violation", "unknown endpoint"));

@@ -15,6 +15,8 @@ export interface PendingApproval {
   expires_at: string;
   /** Present for a mid-run request to read one extra path. */
   action?: { tool: string; target: string };
+  /** Present for an offer to receive files. */
+  transfer?: { files: number; bytes: number; root: string; dest: string; sample: string[]; message?: string };
 }
 
 export type AnswerResult = "ok" | "not_found" | "ambiguous";
@@ -40,6 +42,18 @@ export class QueuePrompter implements Prompter {
         access: sanitizeForTerminal(req.access, 400),
         timeout_s: req.timeoutS,
         expires_at: new Date(Date.now() + req.timeoutS * 1000).toISOString(),
+        ...(req.transfer
+          ? {
+              transfer: {
+                files: req.transfer.files,
+                bytes: req.transfer.bytes,
+                root: sanitizeForTerminal(req.transfer.root, 100),
+                dest: sanitizeForTerminal(req.transfer.dest, 400),
+                sample: req.transfer.sample.map((x) => sanitizeForTerminal(x, 200)),
+                ...(req.transfer.message ? { message: sanitizeForTerminal(req.transfer.message, 600) } : {}),
+              },
+            }
+          : {}),
         ...(req.action ? { action: { tool: sanitizeForTerminal(req.action.tool, 40), target: sanitizeForTerminal(req.action.target, 500) } } : {}),
       };
       this.pending.set(id, { info, resolve });

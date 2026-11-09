@@ -70,6 +70,8 @@ What to look for: the prompt on B names A (from `whois`, not from the message); 
 curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
 ```
 
+File transfer: tested between two local daemons over HTTP (CLI `send`, MCP `send_files`, declined offer, secrets and `node_modules`/`.git` left out, exec bit kept, 3 MB file, hash checks, traversal and token checks in unit tests). Not yet tried between two real machines.
+
 Access requests mid-run: verified with the real Claude Code (opt-in test `RESOLVROOM_REAL_CLAUDE=1`): the agent read a file outside the shared folder after the approval callback said yes, did not when it said no, and a `.env` next to it was refused without asking.
 
 Hermes: the runner was run against the real Hermes Agent 0.19 CLI (with a stand-in model server): the only tool offered to the model is the inert `todo` toolset, the configured MCP servers (including `resolvroom` itself) are excluded, and `install-hermes` registers the MCP server and the `/room` skill through the real `hermes mcp add`. Not tested: a real model behind Hermes. Opt-in test: `RESOLVROOM_REAL_HERMES=1 pnpm --filter @resolvroom/runner test`.

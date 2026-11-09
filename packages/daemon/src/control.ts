@@ -11,6 +11,8 @@ import type { HttpPeerClient } from "./client.js";
 import type { PairingManager, PairingStatus } from "./pairing.js";
 import { DEFAULT_PAIR_PROFILE } from "./pairing.js";
 import type { PendingApproval, QueuePrompter } from "./approvals.js";
+import { sendFiles } from "./send.js";
+import type { SendOutcome, SendRequest } from "./send.js";
 
 export interface ControlServerOptions {
   engine: Engine;
@@ -23,6 +25,8 @@ export interface ControlServerOptions {
   pairClient?: HttpPeerClient;
   /** Present when the daemon has no terminal and queues approvals. */
   approvals?: QueuePrompter;
+  /** Home folder, for the secrets filter of `send`. Enables /control/send together with pairClient. */
+  home?: string;
 }
 
 export interface PairJoinRequest {
@@ -193,6 +197,26 @@ export function createControlServer(o: ControlServerOptions): Server {
         }
       }
 
+      if (o.pairClient && o.home && r.method === "POST" && url.pathname === "/control/send") {
+        const [body, bad] = await readJson();
+        if (bad) return bad;
+        const b = body as Partial<SendRequest>;
+        if (typeof b.peer !== "string" || !b.peer || !Array.isArray(b.paths) || b.paths.length === 0 || !b.paths.every((p) => typeof p === "string" && p.startsWith("/"))) {
+          return [400, errorBody("invalid_request", "peer and paths (absolute) are required")];
+        }
+        if (!o.config().peers.some((p) => p.peer.toLowerCase() === (b.peer ?? "").toLowerCase())) {
+          return [400, errorBody("invalid_request", `${b.peer} is not one of your peers (resolvroom peer list)`)];
+        }
+        const outcome: SendOutcome = await sendFiles(o.pairClient, {
+          peer: b.peer,
+          paths: b.paths,
+          ...(typeof b.message === "string" ? { message: b.message } : {}),
+          ...(b.include_git === true ? { include_git: true } : {}),
+          ...(b.include_deps === true ? { include_deps: true } : {}),
+        }, { home: o.home });
+        return [200, outcome];
+      }
+
       if (o.approvals) {
         if (r.method === "GET" && url.pathname === "/control/approvals") {
           return [200, { approvals: o.approvals.list() }];
@@ -295,6 +319,10 @@ export class ControlClient {
 
   answerApproval(id: string, answer: "allow" | "deny"): Promise<unknown> {
     return this.call("POST", "/control/approvals/answer", { id, answer });
+  }
+
+  send(req: SendRequest): Promise<SendOutcome> {
+    return this.call<SendOutcome>("POST", "/control/send", req);
   }
 
   consult(req: ConsultRequest, signal?: AbortSignal): Promise<ConsultOutcome> {

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,8 +31,11 @@ async function pair(opts: { allowAlpha?: boolean; devTags?: string[] } = {}) {
   const pa = new RecordingPrompter();
   const pb = new RecordingPrompter();
   const mk = async (name: string, prompter: Prompter, devTags: string[] = []) => {
+    const base = tmp();
     const d = await startDaemon({
-      home: tmp(),
+      home: base,
+      inbox: join(base, "inbox"),
+      userHome: base,
       name,
       bind: "127.0.0.1",
       port: 0,
@@ -57,6 +60,34 @@ async function pair(opts: { allowAlpha?: boolean; devTags?: string[] } = {}) {
   }
   return { alpha, beta, pa, pb, ctl: new ControlClient(alpha.store.socketPath) };
 }
+
+describe("send files over real HTTP", () => {
+  it("alpha sends a folder; beta's owner accepts; it lands in beta's inbox/alpha", async () => {
+    const { beta, pb, ctl } = await pair();
+    const src = mkdtempSync(join(tmpdir(), "rr-src-"));
+    mkdirSync(join(src, "lib"));
+    writeFileSync(join(src, "lib", "x.ts"), "x");
+    writeFileSync(join(src, ".env"), "S=1");
+    const out = await ctl.send({ peer: "beta", paths: [src], message: "for review" });
+    expect(out.status).toBe("sent");
+    if (out.status !== "sent") return;
+    expect(out.dest.startsWith(join(beta.store.home, "inbox", "alpha"))).toBe(true);
+    expect(readFileSync(join(out.dest, "lib", "x.ts"), "utf8")).toBe("x");
+    expect(existsSync(join(out.dest, ".env"))).toBe(false);
+    expect(out.skipped.secrets).toEqual([".env"]);
+    expect(pb.requests[0]?.transfer?.message).toBe("for review");
+  });
+
+  it("declined: nothing arrives", async () => {
+    const { beta, pb, ctl } = await pair();
+    pb.answer = "deny";
+    const src = mkdtempSync(join(tmpdir(), "rr-src-"));
+    writeFileSync(join(src, "a"), "a");
+    const out = await ctl.send({ peer: "beta", paths: [src] });
+    expect(out.status).toBe("declined");
+    expect(existsSync(join(beta.store.home, "inbox", "alpha"))).toBe(false);
+  });
+});
 
 describe("two daemons over real HTTP", () => {
   it("consult end to end through the control socket", async () => {

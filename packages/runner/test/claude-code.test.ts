@@ -148,6 +148,22 @@ describe("run with a fake claude binary", () => {
     expect(await r.available()).toBe(false);
   });
 
+  it("a consult from a peer can also read what that peer sent (inbox/<peer>), and only that", async () => {
+    const dir = tmp();
+    const work = tmp();
+    const inbox = tmp();
+    mkdirSync(join(inbox, "laptop"));
+    mkdirSync(join(inbox, "other"));
+    const { cmd, out } = fakeClaude(dir);
+    const r = new ClaudeCodeRunner({ command: cmd, workdir: work, home: "/nonexistent-home", inbox });
+    await r.run({ sessionId: "s", peer: "laptop", goal: "g", proposal: "p", permissions: perms(ASK), signal: new AbortController().signal });
+    const argv = (JSON.parse(readFileSync(out, "utf8")) as { argv: string[] }).argv;
+    const i = argv.indexOf("--add-dir");
+    expect(i).toBeGreaterThan(-1);
+    expect(argv[i + 1]).toBe(join(inbox, "laptop"));
+    expect(argv.join(" ")).not.toContain(join(inbox, "other"));
+  });
+
   it("abort kills the process", async () => {
     const dir = tmp();
     const { cmd } = fakeClaude(dir, "setInterval(() => {}, 1000);");

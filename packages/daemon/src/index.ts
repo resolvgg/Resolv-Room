@@ -6,3 +6,5 @@ export * from "./prompter.js";
 export * from "./daemon.js";
 export * from "./pairing.js";
 export * from "./approvals.js";
+export * from "./transfer.js";
+export * from "./send.js";
