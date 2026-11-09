@@ -92,17 +92,42 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     } else {
       const wanted = mergeTags(current, autoEligible);
       let ok = false;
-      for (let attempt = 0; attempt < 6 && !ok; attempt++) {
+      const flag = `--advertise-tags=${wanted.join(",")}`;
+      const firstLine = (m: string): string => m.split("\n")[0] ?? "";
+      const applyTags = async (): Promise<void> => {
         try {
-          await exec("tailscale", ["set", `--advertise-tags=${wanted.join(",")}`]);
+          await exec("tailscale", ["set", flag]);
+        } catch (err) {
+          // Older Tailscale versions have no `set --advertise-tags`; `up` does the same thing.
+          if (!/flag provided but not defined/i.test(firstLine((err as Error).message))) throw err;
+          io.out("  • This Tailscale version has no `tailscale set --advertise-tags`; using `tailscale up` instead.\n");
+          await exec("tailscale", ["up", flag]);
+        }
+      };
+      for (let attempt = 0; attempt < 6 && !ok; attempt++) {
+        if (attempt > 0 && tagsAreSet((await tailscaleSelf(exec).catch(() => self)).tags, autoEligible)) {
+          ok = true; // you applied them yourself while the wizard was waiting
+          break;
+        }
+        try {
+          await applyTags();
           ok = true;
         } catch (err) {
           const msg = (err as Error).message;
-          io.out(`  ✖ \`tailscale set --advertise-tags=${wanted.join(",")}\` failed:\n    ${msg.split("\n")[0]}\n`);
-          if (/access denied|permission|operator|sudo/i.test(msg)) {
-            io.out(`    This usually needs root. Try:  sudo tailscale set --advertise-tags=${wanted.join(",")}\n    (or once:  sudo tailscale set --operator=$USER)\n`);
-          } else {
+          const head = firstLine(msg);
+          io.out(`  ✖ Could not apply ${flag}\n    ${head}\n`);
+          if (/non-default flags|mentioning all/i.test(msg)) {
+            io.out(
+              "\n    `tailscale up` needs every non-default setting of this machine repeated. Tailscale printed the exact command it wants:\n\n" +
+                `${msg.split("\n").slice(0, 8).map((l) => `      ${l}`).join("\n")}\n\n` +
+                `    Run that command with ${flag} added (with sudo if needed), or update Tailscale (\`tailscale update\`) to get \`tailscale set --advertise-tags\`.\n`,
+            );
+          } else if (/access denied|permission denied|must be root|requires root|use sudo|operator/i.test(head)) {
+            io.out(`    This usually needs root. Try:  sudo tailscale set ${flag}\n    (or once:  sudo tailscale set --operator=$USER)\n`);
+          } else if (/tags?\b.*(invalid|not permitted)|not permitted|invalid tag/i.test(head)) {
             io.out(`\n    The tags are not declared in your tailnet policy yet (one time, for the whole tailnet).\n    Open https://login.tailscale.com/admin/acls and ADD these blocks to the policy, then Save:\n\n${ACL_SNIPPET}\n\n    (merge them with what you already have; do not replace your policy)\n`);
+          } else {
+            io.out(`    ${msg.split("\n").slice(1, 4).join("\n    ")}\n    Fix that, or set the tags yourself:  sudo tailscale up ${flag}  (add your other usual flags)\n`);
           }
           if (!reader) return 1;
           const a = await reader.ask(io, "  Press Enter after fixing it to retry (or type skip): ");

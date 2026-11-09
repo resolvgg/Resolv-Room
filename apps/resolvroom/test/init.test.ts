@@ -14,7 +14,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), "rr-init-"));
  * A stand-in `tailscale` binary. State lives in a JSON file. `allowed` lists the tags the (fake) tailnet policy accepts;
  * `set --advertise-tags` fails with a policy error for any other tag, like the real one does.
  */
-function fakeTailscale(dir: string, state: { tags: string[]; allowed: string[]; denyPermission?: boolean }): { bin: string; stateFile: string } {
+function fakeTailscale(dir: string, state: { tags: string[]; allowed: string[]; denyPermission?: boolean; oldVersion?: boolean; upNeedsFlags?: boolean }): { bin: string; stateFile: string } {
   const stateFile = join(dir, "ts-state.json");
   writeFileSync(stateFile, JSON.stringify(state));
   const bin = join(dir, "bin");
@@ -29,7 +29,15 @@ const st = JSON.parse(fs.readFileSync(f, "utf8"));
 const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === "status") {
   console.log(JSON.stringify({ Self: { HostName: "VPS-1", DNSName: "vps-1.example.ts.net.", TailscaleIPs: ["100.64.0.7"], Tags: st.tags } }));
+} else if (cmd === "up" && st.oldVersion) {
+  if (st.upNeedsFlags) { console.error("Error: changing settings via 'tailscale up' requires mentioning all non-default flags. To proceed, specify --accept-routes=false:\\n\\ttailscale up --advertise-tags=x --accept-routes=false"); process.exit(1); }
+  const arg = rest.find((a) => a.startsWith("--advertise-tags="));
+  const tags = arg.slice("--advertise-tags=".length).split(",");
+  const bad = tags.filter((t) => !st.allowed.includes(t));
+  if (bad.length) { console.error("requested tags [" + bad.join(" ") + "] are invalid or not permitted"); process.exit(1); }
+  st.tags = tags; fs.writeFileSync(f, JSON.stringify(st));
 } else if (cmd === "set") {
+  if (st.oldVersion) { console.error("flag provided but not defined: -advertise-tags\\nUsage of set:\\n  --operator string\\n   \\tprovide a Unix username as the operator"); process.exit(1); }
   if (st.denyPermission) { console.error("Access denied: checkPrefs access denied"); process.exit(1); }
   const arg = rest.find((a) => a.startsWith("--advertise-tags="));
   const tags = arg.slice("--advertise-tags=".length).split(",");
@@ -144,6 +152,36 @@ describe("init wizard (fake tailscale)", () => {
     expect(t.out()).toContain("sudo tailscale set --advertise-tags=");
     expect(t.out()).not.toContain("tagOwners");
   });
+
+  it("old Tailscale without `set --advertise-tags`: falls back to `up` (and does not blame root for the usage text)", async () => {
+    const dir = tmp();
+    const { bin, stateFile } = fakeTailscale(dir, { tags: [], allowed: ALL, oldVersion: true });
+    const t = ctx(dir, bin);
+    expect(await initCommand(["--yes", "--no-claude", "--auto-eligible"], t.io, noClaude)).toBe(0);
+    expect(JSON.parse(readFileSync(stateFile, "utf8")).tags).toEqual(["tag:resolvroom", "tag:resolvroom-auto"]);
+    expect(t.out()).toContain("using `tailscale up` instead");
+    expect(t.out()).not.toContain("needs root");
+  });
+
+  it("old Tailscale whose `up` wants all flags: shows Tailscale's own command and lets you apply it yourself", async () => {
+    const dir = tmp();
+    const { bin, stateFile } = fakeTailscale(dir, { tags: [], allowed: ALL, oldVersion: true, upNeedsFlags: true });
+    const t = ctx(dir, bin, { isTTY: true });
+    t.stdin.write("y\n");
+    const run = initCommand(["--no-claude"], t.io, noClaude);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(t.out()).toContain("repeated");
+    expect(t.out()).toContain("--accept-routes=false");
+    expect(t.out()).not.toContain("needs root");
+    // the user runs the command Tailscale suggested themselves
+    writeFileSync(stateFile, JSON.stringify({ tags: ["tag:resolvroom", "tag:resolvroom-auto"], allowed: ALL, oldVersion: true, upNeedsFlags: true }));
+    t.stdin.write("\n");
+    await new Promise((r) => setTimeout(r, 600));
+    t.stdin.write("n\n");
+    t.stdin.end();
+    expect(await run).toBe(0);
+    expect(t.out()).toContain("Tags applied");
+  }, 20000);
 
   it("no Tailscale: stops with the install link", async () => {
     const dir = tmp();
