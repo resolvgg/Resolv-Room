@@ -37,3 +37,21 @@ export function roomCommandMarkdown(serverName = "resolvroom"): string {
     "",
   ].join("\n");
 }
+
+/**
+ * Contents of ~/.hermes/skills/resolvroom/room/SKILL.md so that `/room <request>` works in Hermes Agent.
+ * Hermes appends the text typed after `/room` to the skill as the user instruction.
+ */
+export function roomSkillMarkdown(): string {
+  return [
+    "---",
+    "name: room",
+    "description: Solve a request, then get a second opinion from the agent on another machine (Resolv Room). Usage: /room [peer] <what you want solved>",
+    "---",
+    "",
+    roomInstructions("(the user's request is the instruction given together with this skill)"),
+    "",
+    "The tools are the `consult` and `peers` tools of the `resolvroom` MCP server.",
+    "",
+  ].join("\n");
+}

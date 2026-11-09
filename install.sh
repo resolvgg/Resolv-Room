@@ -10,7 +10,8 @@
 # Everything after "-s --" is passed to `resolvroom init`.
 #
 # Overrides (mostly for testing): RESOLVROOM_REPO, RESOLVROOM_REF, RESOLVROOM_INSTALL_DIR, RESOLVROOM_BIN_DIR,
-# RESOLVROOM_NO_INIT=1.
+# RESOLVROOM_NO_INIT=1, RESOLVROOM_FORCE_INIT=1 (run the guided setup even if this machine is already set up).
+# Running it again on a machine that is already set up updates it and restarts the service, without the setup.
 set -eu
 
 REPO="${RESOLVROOM_REPO:-https://github.com/resolvgg/Resolv-Room.git}"
@@ -86,6 +87,18 @@ case ":$PATH:" in
      say "Note: $BIN_DIR is not in your PATH. Add this to your shell profile:"
      say "  export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
+
+# --- already set up? just restart --------------------------------------------
+DONE="${RESOLVROOM_HOME:-$HOME/.resolvroom}/setup-done"
+if [ -f "$DONE" ] && [ "$#" -eq 0 ] && [ "${RESOLVROOM_FORCE_INIT:-}" != "1" ]; then
+  say ""
+  say "This machine is already set up; keeping your settings."
+  "$BIN_DIR/resolvroom" service restart || true
+  say ""
+  say "Updated. Next time you can just run:  resolvroom update"
+  say "To redo the guided setup:              resolvroom init"
+  exit 0
+fi
 
 # --- onboarding -----------------------------------------------------------
 if [ "${RESOLVROOM_NO_INIT:-}" = "1" ]; then

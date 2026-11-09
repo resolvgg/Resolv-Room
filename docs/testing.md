@@ -70,6 +70,8 @@ What to look for: the prompt on B names A (from `whois`, not from the message); 
 curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
 ```
 
+Hermes: the runner was run against the real Hermes Agent 0.19 CLI (with a stand-in model server): the only tool offered to the model is the inert `todo` toolset, the configured MCP servers (including `resolvroom` itself) are excluded, and `install-hermes` registers the MCP server and the `/room` skill through the real `hermes mcp add`. Not tested: a real model behind Hermes. Opt-in test: `RESOLVROOM_REAL_HERMES=1 pnpm --filter @resolvroom/runner test`.
+
 Tested here: the installer end to end from a local clone (download, build, link), `resolvroom init` against a fake `tailscale` binary (tags applied, other tags kept, policy-missing loop, sudo hint, no Tailscale), and `install-claude` against the real `claude mcp add` (it reports `Connected`). Not tested here: the real `tailscale set --advertise-tags` and a real tailnet policy, `systemd --user` and `launchd` (the generated files are unit-tested, starting them is not), and `curl | sh` from the real GitHub URL on a fresh machine.
 
 ## What has and has not been verified

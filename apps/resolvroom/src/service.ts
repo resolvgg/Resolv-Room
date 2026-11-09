@@ -70,7 +70,11 @@ export function servicePaths(platform: NodeJS.Platform, home = homedir()): { fil
 
 export async function serviceCommand(args: string[], io: Io): Promise<number> {
   const [sub, ...rest] = args;
-  if (sub !== "install" && sub !== "uninstall") throw new UsageError("usage: resolvroom service install|uninstall [--workdir <dir>] [--agent claude-code|mock] [--yes]");
+  if (sub === "restart") {
+    await restartService(io);
+    return 0;
+  }
+  if (sub !== "install" && sub !== "uninstall") throw new UsageError("usage: resolvroom service install|uninstall|restart [--workdir <dir>] [--agent claude-code|hermes|mock] [--yes]");
   const target = servicePaths(process.platform, io.env.HOME ?? homedir());
   if (!target) throw new UsageError("background service is supported on Linux (systemd --user) and macOS (launchd) only");
   const { values } = opts(rest, { workdir: { type: "string" }, agent: { type: "string" }, yes: { type: "boolean" } });
@@ -134,4 +138,19 @@ export async function serviceCommand(args: string[], io: Io): Promise<number> {
     io.out("✔ service loaded (logs in ~/.resolvroom/daemon.log)\n");
   }
   return 0;
+}
+
+/** Restarts the background service if one is installed, so the daemon runs the new code. */
+export async function restartService(io: Io): Promise<void> {
+  const target = servicePaths(process.platform, io.env.HOME ?? homedir());
+  if (!target || !existsSync(target.file)) {
+    io.out("• No background service installed. If a daemon is running in a terminal, restart it (Ctrl+C, then resolvroom start).\n");
+    return;
+  }
+  const r =
+    target.kind === "systemd"
+      ? await runProcess("systemctl", ["--user", "restart", "resolvroom.service"], "", 30_000, { env: io.env }).catch((e: Error) => ({ code: 1, stdout: "", stderr: e.message }))
+      : await runProcess("sh", ["-c", `launchctl unload "${target.file}" 2>/dev/null; launchctl load "${target.file}"`], "", 30_000, { env: io.env }).catch((e: Error) => ({ code: 1, stdout: "", stderr: e.message }));
+  if (r.code === 0) io.out("✔ Restarted the background service.\n");
+  else io.out(`✖ Could not restart the service (${r.stderr.trim() || `exit ${r.code}`}). Run:  ${target.kind === "systemd" ? "systemctl --user restart resolvroom" : `launchctl unload ${target.file} && launchctl load ${target.file}`}\n`);
 }

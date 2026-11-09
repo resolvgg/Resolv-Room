@@ -227,6 +227,29 @@ describe("init wizard (fake tailscale)", () => {
     expect(workdirProblem(join(home, "proj"), home)).toBeNull();
   });
 
+  it("with Claude Code and Hermes: registers both and lets you pick who answers incoming requests", async () => {
+    const dir = tmp();
+    const { bin } = fakeTailscale(dir, { tags: ["tag:resolvroom", "tag:resolvroom-ask"], allowed: ALL });
+    for (const n of ["claude", "hermes"]) {
+      writeFileSync(join(bin, n), '#!/bin/sh\necho "9.9.9 (Fake)"\n');
+      chmodSync(join(bin, n), 0o755);
+    }
+    const t = ctx(dir, bin, { isTTY: true });
+    const called: string[] = [];
+    const run = initCommand([], t.io, { installClaude: async () => (called.push("claude"), 0), installHermes: async () => (called.push("hermes"), 0) });
+    for (const line of ["n", "2", "n"]) {
+      await new Promise((r) => setTimeout(r, 300));
+      t.stdin.write(`${line}\n`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    t.stdin.end();
+    expect(await run).toBe(0);
+    expect(called).toEqual(["claude", "hermes"]);
+    expect(t.out()).toContain("answered by: hermes");
+    expect(t.out()).toContain("resolvroom start --agent hermes");
+    expect(existsSync(join(dir, "home", "setup-done"))).toBe(true);
+  }, 20000);
+
   it("no Tailscale: stops with the install link", async () => {
     const dir = tmp();
     const t = ctx(dir, join(dir, "empty"), { env: { PATH: join(dir, "empty"), RESOLVROOM_HOME: join(dir, "home"), HOME: dir } });

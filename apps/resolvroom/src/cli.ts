@@ -8,7 +8,9 @@ import { ControlClient, ControlError, QueuePrompter, TerminalPrompter, startDaem
 import type { DaemonOptions } from "@resolvroom/daemon";
 import { roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
 import type { PermissionProfile } from "@resolvroom/protocol";
-import { ClaudeCodeRunner, MockRunner, runProcess } from "@resolvroom/runner";
+import { ClaudeCodeRunner, HermesRunner, MockRunner, runProcess } from "@resolvroom/runner";
+import { installHermesCommand } from "./hermes.js";
+import { updateCommand } from "./update.js";
 import { UsageError, confirm, opts, parseDuration, workdirProblem } from "./util.js";
 import { approvalsCommand, pairCommand } from "./pair.js";
 import { serviceCommand } from "./service.js";
@@ -20,14 +22,18 @@ export const HELP = `resolvroom: let AI agents on different machines work on a p
 Usage: resolvroom <command> [options]
 
 Setup
-  init [--yes] [--auto-eligible] [--service|--no-claude]
+  init [--yes] [--auto-eligible] [--service] [--agent claude-code|hermes] [--no-claude] [--no-hermes]
                              Guided setup: identify this machine, set the Tailscale tags, register Claude Code, install the service
   doctor                     Check Node, Tailscale (and its tags), Claude Code and the daemon
   pair                       Show a pairing code (5 min, single use)
   pair <peer> <code>         Pair with a machine that is showing a code (no need for peer allow)
-  service install|uninstall  Run the daemon in the background (systemd --user / launchd)
+  service install|uninstall|restart
+                             Run the daemon in the background (systemd --user / launchd)
   install-claude [--yes|--print]
                              Register the MCP server with Claude Code and install the /room command
+  install-hermes [--yes|--print]
+                             Register the MCP server with Hermes Agent and install the /room skill
+  update                     Download the latest version, rebuild, restart the service (keeps your setup)
   peer allow <name> [options]  Allow a peer (do this on BOTH machines)
        --mode ask|auto         default ask (every session needs your OK)
        --write --network       extra capabilities (read is on by default; --no-read turns it off)
@@ -40,7 +46,8 @@ Setup
 Run
   start [options]            Run the daemon (keep it open: it asks you before agents act in ask mode)
        --workdir <dir>         folder the agent can read once you approve (default: current folder)
-       --agent claude-code|mock
+       --agent claude-code|hermes|mock
+                               hermes answers from the request text only (its file tools cannot be confined to a folder)
   consult <peer> <goal...> [--proposal <text>] [--ask-only]
   approvals [--watch]        Requests waiting for your OK (daemons without a terminal); approve <id> | deny <id>
   mcp                        MCP server on stdio (used by Claude Code)
@@ -84,7 +91,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
       case "doctor":
         return await doctorCommand(io);
       case "init":
-        return await initCommand(rest, io, { installClaude: installClaudeCommand });
+        return await initCommand(rest, io, { installClaude: installClaudeCommand, installHermes: installHermesCommand });
       case "pair":
         return await pairCommand(rest, io);
       case "approvals":
@@ -95,6 +102,10 @@ export async function main(argv: string[], io: Io): Promise<number> {
         return await approvalsCommand(rest, io, "deny");
       case "service":
         return await serviceCommand(rest, io);
+      case "install-hermes":
+        return await installHermesCommand(rest, io);
+      case "update":
+        return await updateCommand(rest, io);
       case "install-claude":
         return await installClaudeCommand(rest, io);
       default:
@@ -247,6 +258,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
     workdir: { type: "string" },
     agent: { type: "string" },
     "claude-command": { type: "string" },
+    "hermes-command": { type: "string" },
     "insecure-dev-identity": { type: "boolean" },
     "dev-tags": { type: "string" },
     "stdin-prompts": { type: "boolean" },
@@ -270,7 +282,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
 
   const workdir = resolve(io.cwd, values.workdir ?? ".");
   const agent = values.agent ?? "claude-code";
-  if (agent === "claude-code") {
+  if (agent === "claude-code" || agent === "hermes") {
     const problem = workdirProblem(workdir, io.env.HOME ?? homedir());
     if (problem) throw new UsageError(`--workdir: ${problem}. Start the daemon inside (or with --workdir) the project folder you want to share.`);
   }
@@ -279,8 +291,10 @@ async function startCommand(args: string[], io: Io): Promise<number> {
       ? new MockRunner({ name })
       : agent === "claude-code"
         ? new ClaudeCodeRunner({ workdir, ...(values["claude-command"] ? { command: values["claude-command"] } : {}) })
-        : null;
-  if (!runner) throw new UsageError('--agent must be "claude-code" or "mock"');
+        : agent === "hermes"
+          ? new HermesRunner({ workdir, ...(values["hermes-command"] ? { command: values["hermes-command"] } : {}) })
+          : null;
+  if (!runner) throw new UsageError('--agent must be "claude-code", "hermes" or "mock"');
 
   const interactive = io.isTTY || values["stdin-prompts"] === true;
   const queue = interactive ? undefined : new QueuePrompter();
@@ -303,7 +317,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
   io.out(
     [
       `Resolv Room daemon "${d.name}" listening on http://${d.host}:${d.port}`,
-      `  agent:   ${agent}${agent === "claude-code" ? ` (can read ${workdir} after you approve)` : " (no AI, echoes only)"}`,
+      `  agent:   ${agent}${agent === "claude-code" ? ` (can read ${workdir} after you approve)` : agent === "hermes" ? " (answers from the request text; no file access)" : " (no AI, echoes only)"}`,
       `  config:  ${d.store.path}`,
       `  peers:   ${d.store.load().peers.map((p) => p.peer).join(", ") || "none yet (resolvroom peer allow <name>)"}`,
       "Waiting for requests. Press Ctrl+C to stop.",
@@ -344,21 +358,26 @@ async function doctorCommand(io: Io): Promise<number> {
         [
           "1. In the Tailscale admin console (Access controls) add tagOwners and an ACL for tag:resolvroom on port 7777",
           "   (snippet: spec/permissions-v0.1.md, section 5).",
-          "2. Then run:  tailscale set --advertise-tags=tag:resolvroom,tag:resolvroom-ask",
-          "   (use tag:resolvroom-auto instead of -ask only on a machine that may ever run in auto mode)",
+          "2. Then, in the admin console Machines list, this machine's ⋯ menu > Edit ACL tags: add tag:resolvroom and tag:resolvroom-ask",
+          "   (tag:resolvroom-auto instead of -ask only on a machine that may ever run in auto mode), or run resolvroom init.",
         ].join("\n"),
       );
   } catch (err) {
     bad(`Tailscale: ${(err as Error).message}`, "Install and log in: https://tailscale.com/download");
   }
 
-  try {
-    const { code, stdout } = await runProcess("claude", ["--version"], "", 10_000, { env: io.env });
-    if (code === 0) ok(`Claude Code: ${stdout.trim()}`);
-    else bad("Claude Code returned an error for --version");
-  } catch {
-    bad("Claude Code (claude) not found in PATH", "Install it: https://claude.com/claude-code  (or use --agent mock to try without it)");
-  }
+  const agentVersion = async (cmd: string): Promise<string | null> => {
+    try {
+      const { code, stdout } = await runProcess(cmd, ["--version"], "", 15_000, { env: io.env });
+      return code === 0 ? stdout.trim().split("\n")[0] ?? "found" : null;
+    } catch {
+      return null;
+    }
+  };
+  const [claudeV, hermesV] = await Promise.all([agentVersion("claude"), agentVersion("hermes")]);
+  if (claudeV) ok(`Claude Code: ${claudeV}`);
+  if (hermesV) ok(`Hermes Agent: ${hermesV} (answers from the request text only)`);
+  if (!claudeV && !hermesV) bad("No agent found (claude or hermes) in PATH", "Install Claude Code (https://claude.com/claude-code) or Hermes Agent  (or use --agent mock to try without one)");
 
   try {
     const s = await new ControlClient(store(io).socketPath).status();

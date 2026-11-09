@@ -18,7 +18,7 @@ It checks Node 22+ and git, downloads the source into `~/.resolvroom/src`, build
 
 ### 1. This machine
 
-Hostname, OS, Node, whether it looks like a headless server (Linux with no desktop session), and which agents are installed (Claude Code, OpenClaw, Hermes). Only the Claude Code runner exists today.
+Hostname, OS, Node, whether it looks like a headless server (Linux with no desktop session), and which agents are installed (Claude Code, OpenClaw, Hermes). Claude Code and Hermes are supported; OpenClaw is planned.
 
 ### 2. Tailscale
 
@@ -36,17 +36,22 @@ tailscale set --advertise-tags=<the machine's other tags, plus the two above>
 
 - **It works.** Done.
 - **The tags are not declared in your tailnet policy yet** (the first machine on a tailnet). `init` prints the `tagOwners`/`acls` blocks to add at <https://login.tailscale.com/admin/acls>, waits for you to press Enter after saving, and retries. This is done once for the whole tailnet. Editing the policy for you would need an API token, so it is left to you for now.
-- **Permission denied.** `tailscale set` often needs root on Linux; `init` suggests `sudo tailscale set ...` (or `sudo tailscale set --operator=$USER` once).
+- **Permission denied.** Changing Tailscale settings often needs root on Linux; `init` prints the exact `sudo tailscale ...` command for your version (older ones need `tailscale up --advertise-tags=... --operator=$USER`), or you can add the tags in the admin console (Machines › ⋯ › Edit ACL tags) and press Enter.
 
 It also records the machine's `ceiling` (`ask`, or `auto` if you said yes). That never grants anything by itself: `auto` is still granted per peer, with a folder and an expiry.
 
-### 4. Claude Code
+### 4. Agents
 
-If Claude Code is installed, `init` runs `resolvroom install-claude`: it shows the two changes (the `/room` command file and `claude mcp add ...`) and applies them after you confirm.
+For each agent found, `init` lets it call other machines:
+
+- **Claude Code:** `resolvroom install-claude` shows the two changes (the `/room` command file and `claude mcp add ...`) and applies them after you confirm.
+- **Hermes:** `resolvroom install-hermes` writes a `room` skill to `~/.hermes/skills/resolvroom/room/SKILL.md` and runs `hermes mcp add resolvroom ...`.
+
+Then it asks which agent answers requests that come **from** other machines (when both are installed). Claude Code can read the shared folder after you approve; Hermes answers from the text of the request only, because its file tools cannot be confined to a folder.
 
 ### 5. Background service
 
-On a server this is the recommended default. `init` asks which folder the agent may read after you approve a request (default: the current folder), writes a `systemd --user` unit (Linux) or a `launchd` agent (macOS) and starts it. On a server also run `loginctl enable-linger $USER` so it survives logout.
+On a server this is the recommended default. `init` asks which folder the agent may read after you approve a request (default: the current folder, or `~/resolvroom-workspace` when the current folder is your home folder; `/`, the home folder itself and secret folders are refused), writes a `systemd --user` unit (Linux) or a `launchd` agent (macOS) and starts it. On a server also run `loginctl enable-linger $USER` so it survives logout.
 
 A background service has no terminal, so requests that need approval wait in a queue on that machine. Answer them with:
 
@@ -124,3 +129,11 @@ Starting the guided setup (resolvroom init)...
 | Daemon has no terminal and nobody answers | The request is denied after `ask.timeout_s`; answer with `resolvroom approvals --watch` |
 | Peer offline during `consult` | Immediate "peer unavailable"; no session is created |
 | Agent not installed on the peer | `session.reject` with `agent_unavailable` and a readable message |
+
+## Updating
+
+```
+resolvroom update
+```
+
+Pulls the latest version, rebuilds and restarts the background service; settings and peers are kept. Running the installer again on a machine that finished `init` does the same and skips the guided setup (set `RESOLVROOM_FORCE_INIT=1`, or run `resolvroom init`, to redo it).

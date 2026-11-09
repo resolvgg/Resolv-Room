@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { ConfigStore, resolveHome } from "@resolvroom/core";
@@ -24,6 +24,7 @@ const TAG_AUTO = "tag:resolvroom-auto";
 
 export interface InitDeps {
   installClaude(args: string[], io: Io): Promise<number>;
+  installHermes?(args: string[], io: Io): Promise<number>;
 }
 
 /** The tag list to advertise: keep the machine's other tags, replace the ask/auto marker, make sure the base tag is there. */
@@ -53,6 +54,8 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     "auto-eligible": { type: "boolean" },
     service: { type: "boolean" },
     "no-claude": { type: "boolean" },
+    "no-hermes": { type: "boolean" },
+    agent: { type: "string" },
     workdir: { type: "string" },
   });
   const interactive = io.isTTY && !values.yes;
@@ -71,7 +74,7 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     const [claude, openclaw, hermes] = await Promise.all([probe("claude", io), probe("openclaw", io), probe("hermes", io)]);
     const found = [claude && `claude-code (${claude})`, openclaw && "openclaw", hermes && "hermes"].filter(Boolean);
     io.out(found.length ? `  ✔ Agents found: ${found.join(", ")}\n` : "  • No agent found (claude, openclaw, hermes). You can still run with --agent mock to try it.\n");
-    if ((openclaw || hermes) && !claude) io.out("  • Only the Claude Code runner exists today; OpenClaw and Hermes runners are planned.\n");
+    if (openclaw) io.out("  • OpenClaw is not supported yet (planned).\n");
 
     // 2. Tailscale
     io.out(`\n2/6  Tailscale\n`);
@@ -165,13 +168,33 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     cfg.ceiling = autoEligible ? "auto" : "ask";
     store.save(cfg);
 
-    // 4. Claude Code
-    io.out(`\n4/6  Claude Code\n`);
+    // 4. Agents: let the local agents call other machines (/room)
+    io.out(`\n4/6  Agents\n`);
+    const nested = { ...io, ...(reader ? { reader } : {}) };
+    const installArgs = values.yes || !interactive ? ["--yes"] : [];
     if (claude && !values["no-claude"]) {
-      await deps.installClaude(values.yes || !interactive ? ["--yes"] : [], { ...io, ...(reader ? { reader } : {}) }).catch((e) => io.out(`  ✖ ${(e as Error).message}\n`));
-    } else {
-      io.out(claude ? "  • Skipped (--no-claude).\n" : "  • Claude Code not found; skipping the MCP server and /room command.\n");
+      io.out("  Claude Code:\n");
+      await deps.installClaude(installArgs, nested).catch((e) => io.out(`  ✖ ${(e as Error).message}\n`));
+    } else if (claude) io.out("  • Claude Code: skipped (--no-claude).\n");
+    if (hermes && !values["no-hermes"] && deps.installHermes) {
+      io.out("  Hermes:\n");
+      await deps.installHermes(installArgs, nested).catch((e) => io.out(`  ✖ ${(e as Error).message}\n`));
+    } else if (hermes) io.out("  • Hermes: skipped.\n");
+    if (!claude && !hermes) io.out("  • No supported agent found; skipping the MCP server and /room.\n");
+
+    // Which agent answers requests that arrive from other machines.
+    const answerers = [claude && "claude-code", hermes && "hermes"].filter((a): a is string => Boolean(a));
+    let agent = values.agent ?? answerers[0] ?? "claude-code";
+    if (!values.agent && answerers.length > 1 && reader) {
+      io.out("  Which agent should answer requests from other machines?\n    1. claude-code  (can read the shared folder after you approve)\n    2. hermes       (answers from the request text only; its file tools cannot be confined to a folder)\n");
+      const a = await reader.ask(io, "  Choose 1 or 2 [1]: ");
+      agent = (a ?? "").trim() === "2" || /^h/i.test((a ?? "").trim()) ? "hermes" : "claude-code";
     }
+    if (!["claude-code", "hermes", "mock"].includes(agent)) {
+      io.out(`  ✖ Unknown agent "${agent}" (use claude-code, hermes or mock)\n`);
+      return 1;
+    }
+    io.out(`  ✔ Requests from other machines will be answered by: ${agent}\n`);
 
     // 5. Background service
     io.out(`\n5/6  Background service\n`);
@@ -200,17 +223,18 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
           }
         }
         if (!workdir) io.out("  • No usable folder; not installing the service. Later:  resolvroom service install --workdir <project folder>\n");
-        else service = (await serviceCommand(["install", "--yes", "--workdir", workdir], io)) === 0;
+        else service = (await serviceCommand(["install", "--yes", "--workdir", workdir, "--agent", agent], io)) === 0;
       }
       else io.out("  • Not installing. Start it yourself with `resolvroom start`.\n");
     }
 
     // 6. Next steps
     io.out(`\n6/6  Next\n`);
-    if (!service) io.out("  1. Start the daemon (keep it open):   resolvroom start\n");
+    if (!service) io.out(`  1. Start the daemon (keep it open):   resolvroom start --agent ${agent}\n`);
     io.out(`  ${service ? "1" : "2"}. Pair with the other machine:\n       here:   resolvroom pair            (shows a code)\n       there:  resolvroom pair ${self.name} <code>\n`);
     if (service || !io.isTTY) io.out(`  ${service ? "2" : "3"}. This daemon has no terminal, so approvals wait in a queue:   resolvroom approvals --watch\n`);
-    io.out(`  ${service ? "3" : "4"}. Test:  resolvroom consult <other-machine> "ping"      then in Claude Code:  /room <what you want solved>\n\n`);
+    io.out(`  ${service ? "3" : "4"}. Test:  resolvroom consult <other-machine> "ping"      then in Claude Code or Hermes:  /room <what you want solved>\n\n`);
+    writeFileSync(join(resolveHome(io.env), "setup-done"), `${new Date().toISOString()}\n`);
     return 0;
   } finally {
     reader?.close();

@@ -2,7 +2,7 @@
 
 A self-hosted bridge that lets AI agents on different machines work on a problem together, over your own private network.
 
-> **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent or a real Claude Code), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has **not** been tried on two machines over a real tailnet yet. See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
+> **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent, a real Claude Code or Hermes Agent), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has **not** been tried on two machines over a real tailnet yet. See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
 
 ## Install (one command per machine)
 
@@ -10,7 +10,15 @@ A self-hosted bridge that lets AI agents on different machines work on a problem
 curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
 ```
 
-It needs Node 22+ and git, installs under `~/.resolvroom` and `~/.local/bin` (no `sudo`), then starts `resolvroom init`: it identifies the machine, sets the Tailscale tags, registers the `/room` command in Claude Code and can install a background service. Then pair two machines: `resolvroom pair` on one, `resolvroom pair <name> <code>` on the other. Details: [`docs/onboarding.md`](docs/onboarding.md).
+It needs Node 22+ and git, installs under `~/.resolvroom` and `~/.local/bin` (no `sudo`), then starts `resolvroom init`: it identifies the machine, sets the Tailscale tags, registers `/room` in Claude Code and/or Hermes and can install a background service. Then pair two machines: `resolvroom pair` on one, `resolvroom pair <name> <code>` on the other. Details: [`docs/onboarding.md`](docs/onboarding.md).
+
+## Update
+
+```
+resolvroom update
+```
+
+It pulls the latest version into `~/.resolvroom/src`, rebuilds it and restarts the background service. Your settings, peers and agent registrations stay as they are. Running the `curl … | sh` line again on a machine that is already set up does the same (it skips the guided setup; `resolvroom init` redoes it).
 
 ## Try it in two minutes
 
@@ -30,6 +38,18 @@ After `resolvroom install-claude`, in Claude Code:
 ```
 
 The agent works on your request first, builds a proposal, sends it to the agent on the other machine with the `consult` tool, and comes back with its own conclusion plus the second opinion. (`/mcp__resolvroom__room` is the same flow exposed by the MCP server.)
+
+In Hermes Agent, `resolvroom install-hermes` registers the same MCP server (`hermes mcp add`) and a `room` skill, so `/room …` works there too.
+
+## Agents that answer
+
+The daemon wakes one local agent to answer requests from other machines (`resolvroom start --agent …`, chosen in `init`):
+
+| Agent | What it can touch |
+|---|---|
+| `claude-code` | In ask mode, reads the shared folder after you approve; in auto mode, the granted folders (and edits/web if granted). Never the shell. |
+| `hermes` | Only the text of the request (plus web search in auto mode, if granted). Hermes' file tools cannot be confined to a folder, so it gets none. |
+| `mock` | Nothing; echoes the request. For testing. |
 
 ## The problem
 
@@ -82,8 +102,8 @@ docs/            onboarding flow, testing guide, design notes
 | 2 | Core: consult sessions, limits, logs | done (`room` with several rounds is next) |
 | 3 | Tailscale transport: `whois`, allowlist, pairing by code | implemented, untested on a real tailnet |
 | 4 | Local MCP server and `/room` | done |
-| 5 | Runners | Claude Code and mock done; OpenClaw and Hermes planned |
-| 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`; `watch`, `export` planned |
+| 5 | Runners | Claude Code, Hermes (text only) and mock done; OpenClaw planned; Hermes file access via a confined backend planned |
+| 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`, `install-hermes`, `update`; `watch`, `export` planned |
 | 7 | Multi-round `room`, per-action approval, first release | planned |
 
 ## Contributing
