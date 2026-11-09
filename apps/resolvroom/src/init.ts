@@ -94,13 +94,23 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
       let ok = false;
       const flag = `--advertise-tags=${wanted.join(",")}`;
       const firstLine = (m: string): string => m.split("\n")[0] ?? "";
+      const user = io.env.USER ?? io.env.LOGNAME ?? "$USER";
+      let useUp = false;
+      const consoleHint =
+        `    Or skip the terminal: in https://login.tailscale.com/admin/machines open this machine's ⋯ menu > Edit ACL tags,\n` +
+        `    add ${wanted.join(" and ")}, then press Enter here.\n`;
       const applyTags = async (): Promise<void> => {
+        if (useUp) {
+          await exec("tailscale", ["up", flag]);
+          return;
+        }
         try {
           await exec("tailscale", ["set", flag]);
         } catch (err) {
           // Older Tailscale versions have no `set --advertise-tags`; `up` does the same thing.
           if (!/flag provided but not defined/i.test(firstLine((err as Error).message))) throw err;
-          io.out("  • This Tailscale version has no `tailscale set --advertise-tags`; using `tailscale up` instead.\n");
+          io.out("  • `tailscale set` cannot change tags here; using `tailscale up` instead.\n");
+          useUp = true;
           await exec("tailscale", ["up", flag]);
         }
       };
@@ -120,14 +130,15 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
             io.out(
               "\n    `tailscale up` needs every non-default setting of this machine repeated. Tailscale printed the exact command it wants:\n\n" +
                 `${msg.split("\n").slice(0, 8).map((l) => `      ${l}`).join("\n")}\n\n` +
-                `    Run that command with ${flag} added (with sudo if needed), or update Tailscale (\`tailscale update\`) to get \`tailscale set --advertise-tags\`.\n`,
+                `    Run that command with ${flag} added (with sudo if needed), or update Tailscale (\`tailscale update\`) to get \`tailscale set --advertise-tags\`.\n` + consoleHint,
             );
           } else if (/access denied|permission denied|must be root|requires root|use sudo|operator/i.test(head)) {
-            io.out(`    This usually needs root. Try:  sudo tailscale set ${flag}\n    (or once:  sudo tailscale set --operator=$USER)\n`);
+            const cmd = useUp ? `sudo tailscale up ${flag} --operator=${user}` : `sudo tailscale set ${flag}`;
+            io.out(`    Your user may not change Tailscale settings. In another terminal run:\n      ${cmd}\n${consoleHint}`);
           } else if (/tags?\b.*(invalid|not permitted)|not permitted|invalid tag/i.test(head)) {
             io.out(`\n    The tags are not declared in your tailnet policy yet (one time, for the whole tailnet).\n    Open https://login.tailscale.com/admin/acls and ADD these blocks to the policy, then Save:\n\n${ACL_SNIPPET}\n\n    (merge them with what you already have; do not replace your policy)\n`);
           } else {
-            io.out(`    ${msg.split("\n").slice(1, 4).join("\n    ")}\n    Fix that, or set the tags yourself:  sudo tailscale up ${flag}  (add your other usual flags)\n`);
+            io.out(`    ${msg.split("\n").slice(1, 4).join("\n    ")}\n    Fix that, or set the tags yourself:  sudo tailscale up ${flag} --operator=${user}\n${consoleHint}`);
           }
           if (!reader) return 1;
           const a = await reader.ask(io, "  Press Enter after fixing it to retry (or type skip): ");

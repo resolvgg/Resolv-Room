@@ -30,6 +30,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === "status") {
   console.log(JSON.stringify({ Self: { HostName: "VPS-1", DNSName: "vps-1.example.ts.net.", TailscaleIPs: ["100.64.0.7"], Tags: st.tags } }));
 } else if (cmd === "up" && st.oldVersion) {
+  if (st.denyPermission) { console.error("Access denied: checkprefs access denied"); process.exit(1); }
   if (st.upNeedsFlags) { console.error("Error: changing settings via 'tailscale up' requires mentioning all non-default flags. To proceed, specify --accept-routes=false:\\n\\ttailscale up --advertise-tags=x --accept-routes=false"); process.exit(1); }
   const arg = rest.find((a) => a.startsWith("--advertise-tags="));
   const tags = arg.slice("--advertise-tags=".length).split(",");
@@ -161,6 +162,17 @@ describe("init wizard (fake tailscale)", () => {
     expect(JSON.parse(readFileSync(stateFile, "utf8")).tags).toEqual(["tag:resolvroom", "tag:resolvroom-auto"]);
     expect(t.out()).toContain("using `tailscale up` instead");
     expect(t.out()).not.toContain("needs root");
+  });
+
+  it("old Tailscale + no permission: suggests `sudo tailscale up … --operator` and the admin console, not `tailscale set`", async () => {
+    const dir = tmp();
+    const { bin } = fakeTailscale(dir, { tags: [], allowed: ALL, oldVersion: true, denyPermission: true });
+    const t = ctx(dir, bin);
+    t.io.env.USER = "victor";
+    expect(await initCommand(["--yes", "--no-claude", "--auto-eligible"], t.io, noClaude)).toBe(1);
+    expect(t.out()).toContain("sudo tailscale up --advertise-tags=tag:resolvroom,tag:resolvroom-auto --operator=victor");
+    expect(t.out()).toContain("Edit ACL tags");
+    expect(t.out()).not.toContain("sudo tailscale set");
   });
 
   it("old Tailscale whose `up` wants all flags: shows Tailscale's own command and lets you apply it yourself", async () => {
