@@ -1,0 +1,37 @@
+{
+  "name": "@resolvroom/mcp",
+  "version": "0.0.0",
+  "description": "Resolv Room MCP server (stdio) with the consult tool and the /room prompt.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@resolvroom/daemon": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25.0",
+    "@resolvroom/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "@resolvroom/runner": "workspace:*",
+    "@resolvroom/protocol": "workspace:*"
+  },
+  "private": true
+}

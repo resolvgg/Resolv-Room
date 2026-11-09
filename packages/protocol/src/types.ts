@@ -50,6 +50,8 @@ export interface DaemonConfig {
     peer: string;
     profile: PermissionProfile;
     added_at: string;
+    /** Base URL of the peer's daemon. Default: http://<peer>:7777 */
+    endpoint?: string;
   }>;
 }
 
@@ -137,7 +139,9 @@ export type Envelope = BaseEnvelope &
     | { type: "session.accept"; payload: SessionAcceptPayload }
     | { type: "session.reject"; payload: SessionRejectPayload }
     | { type: "session.status"; payload: SessionStatusPayload }
-    | { type: "message" | "question" | "handoff"; payload: TextPayload }
+    | { type: "message"; payload: TextPayload }
+    | { type: "question"; payload: TextPayload }
+    | { type: "handoff"; payload: TextPayload }
     | { type: "result"; payload: ResultPayload }
     | { type: "error"; payload: ErrorPayload }
     | { type: "session.close"; payload: SessionClosePayload }

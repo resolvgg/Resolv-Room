@@ -17,7 +17,7 @@ Identity is never claimed in a message; it is verified from the network.
 
 1. The receiving daemon takes the source address of the connection and asks the local Tailscale which node it is (`tailscale whois`), obtaining the node name and its tags.
 2. `from.peer` in every envelope MUST equal that node name. A mismatch is rejected with HTTP 403.
-3. The node name MUST be on the receiver's allowlist (`peers` in the daemon config), otherwise the receiver answers `session.reject` with `not_allowed`. Having the right Tailscale tag is necessary but not enough.
+3. The node name MUST be on the receiver's allowlist (`peers` in the daemon config). A `session.open` from a node that is not listed is refused with HTTP `403` and the error code `not_allowed`, and the receiver sends nothing back, so a stranger cannot make the daemon open connections. The host treats this as a rejection with reason `not_allowed`. Having the right Tailscale tag is necessary but not enough.
 4. The tags returned by whois feed the permission rules in [`permissions-v0.1.md`](permissions-v0.1.md).
 
 ## 3. Transport binding
@@ -27,9 +27,9 @@ Each daemon listens only on the Tailscale interface of its machine (never `0.0.0
 | Endpoint | Purpose |
 |---|---|
 | `GET /v1/ping` | Liveness and capability probe. Returns `{ "v": "0.1", "peer": "<name>", "agents": ["claude-code", ...] }`. A host MUST call it before opening a session. If the peer does not answer, the session is not created and the caller gets a clear "peer unavailable" error. |
-| `POST /v1/envelopes` | Delivers one envelope (body is the envelope). `202` when accepted; `4xx` with an `error` envelope body when refused. |
+| `POST /v1/envelopes` | Delivers one envelope (body is the envelope). `202` when accepted. Refusals are `4xx` with the body `{ "error": { "code": "...", "message": "..." } }`: `400` invalid envelope (`protocol_violation`), `403` identity mismatch (`permission_denied`) or not on the allowlist (`not_allowed`), `404` unknown session, `413` body over 1 MiB. |
 
-Pairing endpoints are specified together with the transport package (see `docs/onboarding.md`).
+Where to reach a peer: `peers[].endpoint` in the config, otherwise `http://<peer>:7777` (MagicDNS). Pairing endpoints are not specified yet (see `docs/onboarding.md`).
 
 ## 4. Envelope
 
@@ -55,7 +55,7 @@ The agent name `human` is reserved for messages the host's operator injects into
 | `type` | Direction | Payload | Meaning |
 |---|---|---|---|
 | `session.open` | host → participants | `kind`, `goal`, `participants?`, `limits?`, `mode_cap?` | Invitation. `mode_cap` can only lower the mode the receiver applies |
-| `session.accept` | participant → host | `effective: { mode, capabilities }` | Accepts and discloses the mode and capabilities that will apply. Folder paths are never disclosed |
+| `session.accept` | participant → host | `effective: { mode, capabilities }` | Accepts and discloses the mode and capabilities that will really apply, after the runner reduced them to what it can enforce. Folder paths are never disclosed |
 | `session.reject` | participant → host | `reason`, `detail?` | Refuses. Reasons: `not_allowed`, `busy`, `unsupported_version`, `limits_unacceptable`, `user_declined`, `agent_unavailable` |
 | `session.status` | participant → host | `state` | `working`, `awaiting_approval`, `awaiting_human`, `idle`. Carries no detail on purpose: what is being asked stays on the receiving machine |
 | `message` | any | `text`, `format?` | Content |
@@ -78,6 +78,8 @@ One proposal, one answer. Used when an agent has already worked on a problem and
 5. The target runs its agent through a runner under the effective permissions. While it works it MAY send `session.status`.
 6. Target → host: `result`.
 7. Host → target: `session.close` (`done`).
+
+In `ask` mode the target asks its local human when the proposal (step 4) arrives, so the prompt can show it; it reports `session.status` `awaiting_approval` meanwhile. If the human says no (or does not answer within `ask.timeout_s`) the target sends `error` with `permission_denied` and the host reports the consult as declined. In this version the approval is **per session**, not per action.
 
 Default limits: `max_rounds` 1, `max_duration_s` 300, `idle_timeout_s` 120. The target gets exactly one turn. If it needs clarification it says so in the `result` and the host may open a room.
 

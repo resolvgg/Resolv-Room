@@ -1,0 +1,40 @@
+{
+  "name": "resolvroom",
+  "version": "0.0.0",
+  "description": "Resolv Room command line.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@resolvroom/core": "workspace:*",
+    "@resolvroom/daemon": "workspace:*",
+    "@resolvroom/mcp": "workspace:*",
+    "@resolvroom/protocol": "workspace:*",
+    "@resolvroom/runner": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "bin": {
+    "resolvroom": "./dist/bin.js"
+  },
+  "private": true
+}

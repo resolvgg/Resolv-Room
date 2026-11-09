@@ -127,6 +127,14 @@ A runner starts the local agent headless and MUST NOT give it more than the effe
 - if the agent cannot be restricted to what the profile allows, the runner MUST refuse the session (`session.reject` with `agent_unavailable`) instead of running it with more power;
 - the agent MUST NOT be able to read or write the daemon config (hard deny list).
 
+A runner MAY enforce less than the profile allows and MUST then say so: the capabilities it can really enforce are the ones sent in `session.accept`. Reference behavior of the Claude Code runner in v0.1:
+
+- `exec` is never granted, because shell commands cannot be confined to a folder;
+- in `ask` mode the agent is read-only and can only read the daemon's configured working folder, after the human approved the session. The prompt names that folder. `write` and `network` are not available in `ask` mode;
+- in `auto` mode the folders are `scope.roots`, `write` is available through edit-only tools in those folders, and `network` through web tools;
+- no other MCP servers and none of the user's global Claude Code settings are loaded, so the remote request cannot recurse into Resolv Room or reuse the user's allow rules;
+- a working folder that is `/`, the home folder or on the hard deny list makes the runner refuse (`agent_unavailable`).
+
 ## 11. Security considerations
 
 - **Prompt injection through the other agent.** Text from a peer is untrusted input to the local agent. That is why `ask` and read-only are the defaults and `auto` needs an explicit scope and expiry.

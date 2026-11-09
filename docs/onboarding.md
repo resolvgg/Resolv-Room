@@ -1,6 +1,6 @@
 # Onboarding: first install
 
-Status: design. None of these commands exist yet; this document is the target behavior for the CLI (phase 6) and the transport (phase 3).
+Status: partly implemented. Today `resolvroom init` runs the doctor and prints the next steps (it is not an interactive wizard yet), `resolvroom install-claude` registers the MCP server and the `/room` command after confirmation, and peers are added with `resolvroom peer allow <name>` **on both machines**. Pairing by code (section 5), the interactive tag wait and the background service are still design.
 
 **Goal:** two machines paired and a test consult working in about five minutes, safe by default (`ask` mode from the start).
 

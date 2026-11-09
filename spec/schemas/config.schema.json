@@ -36,7 +36,13 @@
         "properties": {
           "peer": { "$ref": "urn:resolvroom:0.1:common#/$defs/peerName" },
           "profile": { "$ref": "urn:resolvroom:0.1:permission-profile" },
-          "added_at": { "$ref": "urn:resolvroom:0.1:common#/$defs/timestamp" }
+          "added_at": { "$ref": "urn:resolvroom:0.1:common#/$defs/timestamp" },
+          "endpoint": {
+            "description": "Base URL of this peer's daemon. Default: http://<peer>:7777 (MagicDNS). Useful for non-default ports and for local testing.",
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://"
+          }
         }
       }
     }

@@ -2,7 +2,26 @@
 
 A self-hosted bridge that lets AI agents on different machines work on a problem together, over your own private network.
 
-> **Status: pre-alpha, design phase.** The protocol and the permission model are specified in [`spec/`](spec/). The daemon, MCP server and CLI are not implemented yet, so there is nothing to install today.
+> **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent or a real Claude Code), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has **not** been tried on two machines over a real tailnet yet. See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
+
+## Try it in two minutes
+
+```
+pnpm install
+pnpm demo:local
+```
+
+Two daemons start on your machine, one consults the other, and the approval prompt is shown and answered. Then see [`docs/testing.md`](docs/testing.md) for real Claude Code and for the two-machine Tailscale test.
+
+## The `/room` command
+
+After `resolvroom install-claude`, in Claude Code:
+
+```
+/room which name is better for this function, isAdmin or hasAdminRole?
+```
+
+The agent works on your request first, builds a proposal, sends it to the agent on the other machine with the `consult` tool, and comes back with its own conclusion plus the second opinion. (`/mcp__resolvroom__room` is the same flow exposed by the MCP server.)
 
 ## The problem
 
@@ -37,23 +56,27 @@ Credentials, keys, `.env` files and the Resolv Room config itself are on a hard 
 spec/            protocol and permission specs (versioned) + JSON Schemas + examples
 packages/
   protocol/      TypeScript types, schema validators and the reference permission resolver
-docs/            onboarding flow and design notes
+  core/          config, JSONL logs and the consult engine (host and guest)
+  daemon/        HTTP transport, Tailscale identity, local control socket, approval prompt
+  runner/        wakes the local agent headless (Claude Code, and a mock for testing)
+  mcp/           MCP server (stdio): consult and peers tools, /room prompt
+apps/
+  resolvroom/    the CLI
+docs/            onboarding flow, testing guide, design notes
 ```
-
-Planned packages: `core` (sessions, moderator, limits), `store` (append-only log), `transport-tailscale`, `mcp`, `runner` and one runner per agent, and the `resolvroom` CLI.
 
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Monorepo, licenses, CI | done |
-| 1 | Protocol v0.1, permission model, onboarding design | in progress |
-| 2 | Core: sessions, moderator, limits, log | planned |
-| 3 | Tailscale transport: `whois`, allowlist, pairing | planned |
-| 4 | Local MCP server | planned |
-| 5 | Runners (Claude Code first) | planned |
-| 6 | CLI: `init`, `pair`, `consult`, `watch`, `export` | planned |
-| 7 | First release | planned |
+| 1 | Protocol v0.1, permission model, onboarding design | done |
+| 2 | Core: consult sessions, limits, logs | done (`room` with several rounds is next) |
+| 3 | Tailscale transport: `whois`, allowlist | implemented, untested on a real tailnet; pairing by code planned |
+| 4 | Local MCP server and `/room` | done |
+| 5 | Runners | Claude Code and mock done; OpenClaw and Hermes planned |
+| 6 | CLI | `start`, `peer`, `consult`, `mcp`, `doctor`, `init`, `install-claude`; `pair`, `watch`, `export` planned |
+| 7 | Multi-round `room`, per-action approval, first release | planned |
 
 ## Contributing
 
