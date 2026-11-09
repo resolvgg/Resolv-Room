@@ -486,6 +486,7 @@ export class Engine {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), p.askTimeoutS * 1000);
       let answer: "allow" | "deny" = "deny";
+      let timedOut = false;
       try {
         answer = await Promise.race([
           this.o.prompter.approve({
@@ -499,7 +500,7 @@ export class Engine {
             timeoutS: p.askTimeoutS,
             signal: ctl.signal,
           }),
-          new Promise<"deny">((resolve) => ctl.signal.addEventListener("abort", () => resolve("deny"), { once: true })),
+          new Promise<"deny">((resolve) => ctl.signal.addEventListener("abort", () => ((timedOut = true), resolve("deny")), { once: true })),
         ]);
       } catch {
         answer = "deny";
@@ -507,10 +508,13 @@ export class Engine {
         clearTimeout(timer);
         ctl.abort();
       }
-      decide("ask", { answer });
+      decide("ask", { answer, ...(timedOut ? { timed_out: true } : {}) });
       if (answer !== "allow") {
         this.guestClose(g);
-        await this.guestSend(g, "error", { code: "permission_denied", message: "declined by the local user" }, env.id);
+        const why = timedOut
+          ? `nobody approved it on that machine within ${p.askTimeoutS}s (run \`resolvroom approvals --watch\` there before asking)`
+          : "declined by the owner of that machine";
+        await this.guestSend(g, "error", { code: "permission_denied", message: why }, env.id);
         return;
       }
     }
