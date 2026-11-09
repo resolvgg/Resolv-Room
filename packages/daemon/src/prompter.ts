@@ -13,6 +13,23 @@ export function sanitizeForTerminal(text: string, maxChars = 1500): string {
 
 export function formatApproval(req: ApprovalRequest): string {
   const indent = (s: string): string => s.split("\n").map((l) => `    ${l}`).join("\n");
+  if (req.action) {
+    return [
+      "",
+      "┌─ Resolv Room: the agent wants to read something outside the shared folder ─",
+      `│ For:     ${sanitizeForTerminal(req.peer, 100)} (session ${sanitizeForTerminal(req.sessionId, 40)})`,
+      `│ Tool:    ${sanitizeForTerminal(req.action.tool, 40)}`,
+      `│ Path:    ${sanitizeForTerminal(req.action.target, 500)}`,
+      "│ Goal:",
+      indent(sanitizeForTerminal(req.goal, 600)),
+      "│",
+      req.action.tool === "Glob"
+        ? "│ Allowing lets it list file NAMES under this folder (not their contents), for this session only."
+        : "│ Allowing lets it read this one file, for this session only.",
+      `│ No answer in ${req.timeoutS}s means NO.`,
+      "└───────────────────────────────────────────────────────────────────",
+    ].join("\n");
+  }
   return [
     "",
     "┌─ Resolv Room: a remote agent wants your agent's help ─────────────",

@@ -26,6 +26,19 @@ export interface RunnerRequest {
   /** Effective permissions, with `capabilities` already reduced to what the runner can honor. */
   permissions: EffectivePermissions;
   signal: AbortSignal;
+  /**
+   * Asks the local human, mid-run, to let the agent read something outside the shared folders. Set by the engine;
+   * a runner that supports it calls it instead of silently refusing. Resolves "deny" on timeout.
+   */
+  askAccess?: (request: AccessRequest) => Promise<ApprovalAnswer>;
+}
+
+/** One file or folder the agent wants to read, outside what the session already allows. */
+export interface AccessRequest {
+  /** Agent tool name, for example "Read" or "Grep". */
+  tool: string;
+  /** Absolute path the tool wants. */
+  target: string;
 }
 
 export interface RunnerResult {
@@ -53,6 +66,8 @@ export interface ApprovalRequest {
   capabilities: Capabilities;
   access: string;
   timeoutS: number;
+  /** Set when this is a mid-run request to read one extra path, not the start of a session. */
+  action?: AccessRequest;
   /** Aborted when the prompt times out or the session ends. */
   signal: AbortSignal;
 }

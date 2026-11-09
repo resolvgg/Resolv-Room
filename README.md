@@ -47,7 +47,7 @@ The daemon wakes one local agent to answer requests from other machines (`resolv
 
 | Agent | What it can touch |
 |---|---|
-| `claude-code` | In ask mode, reads the shared folder after you approve; in auto mode, the granted folders (and edits/web if granted). Never the shell. |
+| `claude-code` | In ask mode, reads the shared folder after you approve; in auto mode, the granted folders (and edits/web if granted). If it needs a file outside them, it **asks you mid-run** (one file at a time; secrets are always refused). Never the shell. |
 | `hermes` | Only the text of the request (plus web search in auto mode, if granted). Hermes' file tools cannot be confined to a folder, so it gets none. |
 | `mock` | Nothing; echoes the request. For testing. |
 
@@ -104,7 +104,7 @@ docs/            onboarding flow, testing guide, design notes
 | 4 | Local MCP server and `/room` | done |
 | 5 | Runners | Claude Code, Hermes (text only) and mock done; OpenClaw planned; Hermes file access via a confined backend planned |
 | 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`, `install-hermes`, `update`; `watch`, `export` planned |
-| 7 | Multi-round `room`, per-action approval, first release | planned |
+| 7 | Multi-round `room`, per-action approval, first release | per-action approval for reads outside the folders done (Claude Code); the rest planned |
 
 ## Contributing
 

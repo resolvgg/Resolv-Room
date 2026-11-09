@@ -160,6 +160,10 @@ describe("approval queue (daemon without a terminal)", () => {
     ctl2.abort();
     expect(await p2).toBe("deny");
     expect(q.list()).toHaveLength(0);
+    const p3 = q.approve({ ...base, action: { tool: "Read", target: "/o/f.txt" }, signal: new AbortController().signal });
+    expect(q.list()[0]?.action).toEqual({ tool: "Read", target: "/o/f.txt" });
+    q.answer(q.list()[0]?.id ?? "", "deny");
+    expect(await p3).toBe("deny");
   });
 
   it("a consult waits in the queue until the owner answers through the control socket", async () => {

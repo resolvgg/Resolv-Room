@@ -60,6 +60,8 @@ resolvroom approvals --watch      # asks about each new request
 resolvroom approvals              # list; then:  resolvroom approve <id>  |  resolvroom deny <id>
 ```
 
+The same queue receives **mid-run access requests**: when the agent needs a file outside the shared folder, the run pauses and asks you for that one path (`Read /home/you/other/config.ts`). Allowing covers that file for the rest of the session. Secrets (`.env`, keys, `~/.ssh`…) are refused without asking.
+
 No answer within `ask.timeout_s` (default 120 s) is a no. Run in the foreground (`resolvroom start`), the same prompt appears in that terminal.
 
 ### 6. Pair two machines

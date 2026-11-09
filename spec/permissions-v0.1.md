@@ -127,13 +127,16 @@ A runner starts the local agent headless and MUST NOT give it more than the effe
 - if the agent cannot be restricted to what the profile allows, the runner MUST refuse the session (`session.reject` with `agent_unavailable`) instead of running it with more power;
 - the agent MUST NOT be able to read or write the daemon config (hard deny list).
 
-A runner MAY enforce less than the profile allows and MUST then say so: the capabilities it can really enforce are the ones sent in `session.accept`. Reference behavior of the Claude Code runner in v0.1:
+A runner MAY enforce less than the profile allows and MUST then say so: the capabilities it can really enforce are the ones sent in `session.accept`. Reference behavior of the Claude Code runner in v0.1 (native permission prompts are bridged to the `ask` prompt with `--permission-prompt-tool`):
 
 - `exec` is never granted, because shell commands cannot be confined to a folder;
-- in `ask` mode the agent is read-only and can only read the daemon's configured working folder, after the human approved the session. The prompt names that folder. `write` and `network` are not available in `ask` mode;
+- in `ask` mode the agent is read-only and can read the daemon's configured working folder after the human approved the session. The prompt names that folder. `write` and `network` are not available in `ask` mode;
+- **reads outside the folders are asked, one at a time, mid-run** (section 7, step 5 and `out_of_scope: ask`): when the agent tries to read a file, or list a folder, outside the session's folders, the run pauses, the host sees `awaiting_approval`, and the local human gets a prompt naming the tool and the exact path. Allowing covers that one file (or, for a listing, the file names under that folder) for the rest of the session. Secrets and the hard deny list, `scope.extra_deny`, `/` and the home folder itself, content search across a folder outside, and writes outside the folders are denied without asking; with `out_of_scope: deny` (auto mode) nothing outside is asked. At most 10 such questions per session; later ones are denied;
 - in `auto` mode the folders are `scope.roots`, `write` is available through edit-only tools in those folders, and `network` through web tools;
 - no other MCP servers and none of the user's global Claude Code settings are loaded, so the remote request cannot recurse into Resolv Room or reuse the user's allow rules;
 - a working folder that is `/`, the home folder or on the hard deny list makes the runner refuse (`agent_unavailable`).
+
+Reference behavior of the Hermes runner in v0.1: Hermes' file tools cannot be confined to a folder, so it gets no file tools at all (`read: false` in `session.accept`); only the request text, plus web tools in `auto` mode when `network` is granted. It never asks for paths.
 
 ## 11. Security considerations
 

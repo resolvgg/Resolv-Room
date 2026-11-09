@@ -65,6 +65,21 @@ describe("terminal safety", () => {
   });
 });
 
+describe("formatApproval for a mid-run access request", () => {
+  it("shows the tool and path and what allowing means", () => {
+    const base = {
+      peer: "laptop", sessionId: "s1", goal: "find the port", proposal: "p", mode: "auto" as const,
+      capabilities: { read: true, write: false, exec: false, network: false }, access: "read /x", timeoutS: 60, signal: new AbortController().signal,
+    };
+    const r = formatApproval({ ...base, action: { tool: "Read", target: "/home/u/other/config.txt\u001b[2J" } });
+    expect(r).toContain("outside the shared folder");
+    expect(r).toContain("/home/u/other/config.txt");
+    expect(r).toContain("read this one file");
+    expect(r).not.toMatch(/\u001b/);
+    expect(formatApproval({ ...base, action: { tool: "Glob", target: "/home/u/other" } })).toContain("file NAMES");
+  });
+});
+
 describe("TerminalPrompter", () => {
   const req = (signal: AbortSignal) => ({
     peer: "a", sessionId: "s", goal: "g", proposal: "p", mode: "ask" as const,

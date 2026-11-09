@@ -13,6 +13,8 @@ export interface PendingApproval {
   access: string;
   timeout_s: number;
   expires_at: string;
+  /** Present for a mid-run request to read one extra path. */
+  action?: { tool: string; target: string };
 }
 
 export type AnswerResult = "ok" | "not_found" | "ambiguous";
@@ -38,6 +40,7 @@ export class QueuePrompter implements Prompter {
         access: sanitizeForTerminal(req.access, 400),
         timeout_s: req.timeoutS,
         expires_at: new Date(Date.now() + req.timeoutS * 1000).toISOString(),
+        ...(req.action ? { action: { tool: sanitizeForTerminal(req.action.tool, 40), target: sanitizeForTerminal(req.action.target, 500) } } : {}),
       };
       this.pending.set(id, { info, resolve });
       req.signal.addEventListener(

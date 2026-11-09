@@ -51,6 +51,44 @@ describe("consult: happy path", () => {
   });
 });
 
+describe("consult: access requests during the run", () => {
+  it("the runner's askAccess reaches the local human as an action request and is logged", async () => {
+    const { a, b } = setup();
+    let got: string | undefined;
+    b.runner.impl = async (req) => {
+      got = await req.askAccess?.({ tool: "Read", target: "/home/u/other/config.ts" });
+      return { status: "solved", summary: `access: ${got}` };
+    };
+    const out = await ask(a);
+    expect(out.summary).toBe("access: allow");
+    expect(b.prompter.requests).toHaveLength(2);
+    expect(b.prompter.requests[1]?.action).toEqual({ tool: "Read", target: "/home/u/other/config.ts" });
+    expect(b.logs.decisions.map((d) => d.event)).toEqual(["accept", "ask", "access"]);
+    expect(b.logs.decisions[2]?.detail).toMatchObject({ answer: "allow", target: "/home/u/other/config.ts" });
+  });
+
+  it("a no from the human is passed back to the runner", async () => {
+    const { a, b } = setup();
+    b.runner.impl = async (req) => {
+      b.prompter.answer = "deny";
+      return { status: "partial", summary: `access: ${await req.askAccess?.({ tool: "Read", target: "/x" })}` };
+    };
+    expect((await ask(a)).summary).toBe("access: deny");
+  });
+
+  it("after 10 questions in one session, more are refused without asking", async () => {
+    const { a, b } = setup();
+    b.runner.impl = async (req) => {
+      const answers: string[] = [];
+      for (let i = 0; i < 12; i++) answers.push((await req.askAccess?.({ tool: "Read", target: `/f${i}` })) ?? "none");
+      return { status: "solved", summary: answers.join(",") };
+    };
+    const out = await ask(a);
+    expect(out.summary.split(",").slice(-2)).toEqual(["deny", "deny"]);
+    expect(b.prompter.requests).toHaveLength(11);
+  });
+});
+
 describe("consult: refusals", () => {
   it("peer not on the allowlist -> rejected not_allowed", async () => {
     const { a, b } = setup([]);

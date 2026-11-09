@@ -17,7 +17,7 @@ import {
   PeerUnavailableError,
   UnknownSessionError,
 } from "./interfaces.js";
-import type { Identity, PeerClient, Prompter, Runner } from "./interfaces.js";
+import type { AccessRequest, Identity, PeerClient, Prompter, Runner } from "./interfaces.js";
 import type { LogStore, SessionLog } from "./logs.js";
 import { peerMatches } from "./names.js";
 
@@ -173,6 +173,8 @@ interface GuestSession {
 }
 
 const SEEN_MAX = 5000;
+/** Mid-run "may I read this?" questions per session; more are refused without asking. */
+const MAX_ACCESS_REQUESTS = 10;
 
 export class Engine {
   private readonly hosts = new Map<string, HostSession>();
@@ -519,6 +521,46 @@ export class Engine {
     const limitTimer = setTimeout(() => g.abort.abort(), (g.limits.max_duration_s ?? 300) * 1000);
     try {
       await this.guestSend(g, "session.status", { state: "working" }, env.id);
+      let asked = 0;
+      const askAccess = async (a: AccessRequest): Promise<"allow" | "deny"> => {
+        if (g.abort.signal.aborted) return "deny";
+        if (++asked > MAX_ACCESS_REQUESTS) {
+          decide("access", { ...a, answer: "deny", reason: "too many requests" });
+          return "deny";
+        }
+        await this.guestSend(g, "session.status", { state: "awaiting_approval" }).catch(() => undefined);
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), p.askTimeoutS * 1000);
+        const onEnd = (): void => ctl.abort();
+        g.abort.signal.addEventListener("abort", onEnd, { once: true });
+        let answer: "allow" | "deny" = "deny";
+        try {
+          answer = await Promise.race([
+            this.o.prompter.approve({
+              peer: g.peer,
+              sessionId: g.id,
+              goal: g.goal,
+              proposal: env.payload.text,
+              mode: p.mode,
+              capabilities: p.capabilities,
+              access: `read ${a.target} (${a.tool})`,
+              timeoutS: p.askTimeoutS,
+              action: a,
+              signal: ctl.signal,
+            }),
+            new Promise<"deny">((resolve) => ctl.signal.addEventListener("abort", () => resolve("deny"), { once: true })),
+          ]);
+        } catch {
+          answer = "deny";
+        } finally {
+          clearTimeout(timer);
+          g.abort.signal.removeEventListener("abort", onEnd);
+          ctl.abort();
+        }
+        decide("access", { ...a, answer });
+        await this.guestSend(g, "session.status", { state: "working" }).catch(() => undefined);
+        return answer;
+      };
       const result = await this.o.runner.run({
         sessionId: g.id,
         peer: g.peer,
@@ -526,6 +568,7 @@ export class Engine {
         proposal: env.payload.text,
         permissions: p,
         signal: g.abort.signal,
+        askAccess,
       });
       if (g.abort.signal.aborted) return;
       await this.guestSend(g, "result", { status: result.status, summary: result.summary, format: "markdown" }, env.id);

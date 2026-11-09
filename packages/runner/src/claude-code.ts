@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import type { Server } from "node:net";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { decideAccess } from "./access-policy.js";
+import type { AccessContext } from "./access-policy.js";
 import { alwaysDenyPatterns, globToRegExp, normalizePath } from "@resolvroom/protocol";
 import type { Capabilities, EffectivePermissions } from "@resolvroom/protocol";
 import type { Runner, RunnerRequest, RunnerResult } from "@resolvroom/core";
@@ -39,8 +45,10 @@ const SECRET_READ_DENY = [
  *
  * What it enforces (verified with Claude Code 2.1.319):
  * - the tool set is limited with `--tools` by capability: read -> Read,Grep,Glob; write -> Edit,Write; network -> WebFetch,WebSearch;
- * - `--permission-mode dontAsk` (read-only runs) or `acceptEdits` (auto + write): anything that would need a prompt is denied,
- *   and reads/edits outside the working folder (and `--add-dir` folders) are denied;
+ * - reads/edits inside the working folder (and `--add-dir` folders) need no prompt. Anything else that would prompt goes to
+ *   Resolv Room's access bridge (`--permission-prompt-tool`), which decides with `decideAccess`: a read of one file
+ *   (or a listing of one folder) outside can be approved by the local human, mid-run; secrets, the deny lists,
+ *   writes outside and other tools are refused without asking;
  * - `exec` is never granted: Bash cannot be confined to a folder, so the runner reports exec:false in `session.accept`;
  * - no MCP servers (`--strict-mcp-config`), so the remote request cannot recurse into Resolv Room or other tools;
  * - the user's global settings (hooks, allow rules) are not loaded (`--setting-sources project,local`);
@@ -50,6 +58,9 @@ export class ClaudeCodeRunner implements Runner {
   readonly agent = "claude-code";
   private readonly command: string;
   private readonly home: string;
+  /** Name of the "ask on anything not pre-allowed" permission mode: "manual" in current Claude Code, "default" before. */
+  private askMode = "manual";
+  private askModeChecked = false;
 
   constructor(private readonly opts: ClaudeCodeRunnerOptions) {
     this.command = opts.command ?? "claude";
@@ -108,7 +119,12 @@ export class ClaudeCodeRunner implements Runner {
     return parts.join("; ");
   }
 
-  buildArgs(p: EffectivePermissions): { args: string[]; cwd: string } {
+  /**
+   * @param accessMcpConfig path of an MCP config with the access bridge. When set, permission prompts go to the
+   *   bridge (`--permission-prompt-tool`) instead of being denied silently, so reads outside the folders can be
+   *   approved by the local human one by one.
+   */
+  buildArgs(p: EffectivePermissions, accessMcpConfig?: string): { args: string[]; cwd: string } {
     const folders = this.folders(p);
     const caps = this.restrict(p);
     if (!folders || !caps || !folders[0]) throw new Error("runner cannot honor these permissions");
@@ -124,7 +140,8 @@ export class ClaudeCodeRunner implements Runner {
       "--no-session-persistence",
       `--tools=${tools.join(",")}`,
       "--permission-mode",
-      caps.write ? "acceptEdits" : "dontAsk",
+      caps.write ? "acceptEdits" : accessMcpConfig ? this.askMode : "dontAsk",
+      ...(accessMcpConfig ? ["--mcp-config", accessMcpConfig, "--permission-prompt-tool", ACCESS_TOOL] : []),
       "--strict-mcp-config",
       "--setting-sources",
       "project,local",
@@ -138,12 +155,33 @@ export class ClaudeCodeRunner implements Runner {
   }
 
   async run(req: RunnerRequest): Promise<RunnerResult> {
-    const { args, cwd } = this.buildArgs(req.permissions);
-    const prompt = composePrompt(req.peer, req.goal, req.proposal);
-    const { code, stdout, stderr } = await runProcess(this.command, args, prompt, this.opts.timeoutMs ?? 600_000, {
-      cwd,
-      signal: req.signal,
+    const folders = this.folders(req.permissions);
+    const caps = this.restrict(req.permissions);
+    if (!folders || !caps) throw new Error("runner cannot honor these permissions");
+    if (!this.askModeChecked) {
+      this.askModeChecked = true;
+      const help = await runProcess(this.command, ["--help"], "", 15_000, { signal: req.signal }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      if (req.signal.aborted) throw new Error("aborted");
+      if (help.code === 0 && !/"manual"/.test(help.stdout) && /"default"/.test(help.stdout)) this.askMode = "default";
+    }
+    const bridge = await startAccessBridge({ folders, caps, home: this.home, cwd: folders[0] ?? this.opts.workdir, granted: [],
+      extraDeny: req.permissions.extraDeny,
+      outOfScope: req.permissions.mode === "auto" ? req.permissions.outOfScope : "ask",
+      ...(req.askAccess ? { ask: req.askAccess } : {}),
     });
+    try {
+      const { args, cwd } = this.buildArgs(req.permissions, bridge.configPath);
+      const prompt = composePrompt(req.peer, req.goal, req.proposal);
+      // Leave room for a human to answer an access question (Claude Code's own MCP tool timeout is shorter).
+      const env = { ...process.env, MCP_TOOL_TIMEOUT: String(Math.max(Number(process.env.MCP_TOOL_TIMEOUT ?? 0), 15 * 60_000)) };
+      const out = await runProcess(this.command, args, prompt, this.opts.timeoutMs ?? 600_000, { cwd, signal: req.signal, env });
+      return this.parse(req, out);
+    } finally {
+      bridge.close();
+    }
+  }
+
+  private parse(req: RunnerRequest, { code, stdout, stderr }: ProcessResult): RunnerResult {
     if (req.signal.aborted) throw new Error("aborted");
     if (code !== 0 && stdout.trim() === "") {
       throw new Error(`claude exited with code ${code}: ${stderr.trim().slice(0, 300)}`);
@@ -159,6 +197,61 @@ export class ClaudeCodeRunner implements Runner {
     }
     return parseAnswer(parsed.result);
   }
+}
+
+const ACCESS_TOOL = "mcp__resolvroom_access__approve";
+
+/**
+ * Starts the private socket the access bridge talks to, and writes the MCP config that tells Claude Code to spawn
+ * the bridge. Every permission prompt of the run is decided by `decideAccess`.
+ */
+export async function startAccessBridge(ctx: AccessContext): Promise<{ configPath: string; close: () => void }> {
+  const dir = mkdtempSync(join(tmpdir(), "rr-access-"));
+  const socketPath = join(dir, "s");
+  const token = randomBytes(24).toString("hex");
+  const server: Server = createServer((sock) => {
+    let buf = "";
+    sock.on("data", (d) => {
+      buf += d.toString("utf8");
+      const nl = buf.indexOf("\n");
+      if (nl < 0) return;
+      let msg: { token?: string; tool_name?: string; input?: Record<string, unknown> };
+      try {
+        msg = JSON.parse(buf.slice(0, nl)) as typeof msg;
+      } catch {
+        sock.end(`${JSON.stringify({ behavior: "deny", message: "bad request" })}\n`);
+        return;
+      }
+      if (msg.token !== token) {
+        sock.end(`${JSON.stringify({ behavior: "deny", message: "bad token" })}\n`);
+        return;
+      }
+      decideAccess(String(msg.tool_name ?? ""), msg.input && typeof msg.input === "object" ? msg.input : {}, ctx)
+        .catch(() => ({ behavior: "deny", message: "error while deciding; denied" }))
+        .then((d) => sock.end(`${JSON.stringify(d)}\n`));
+    });
+    sock.on("error", () => undefined);
+  });
+  await new Promise<void>((ok, fail) => {
+    server.once("error", fail);
+    server.listen(socketPath, () => ok());
+  });
+  // Built: next to this file. From source (tests): the built copy in dist/.
+  let bridgeJs = fileURLToPath(new URL("./access-bridge.js", import.meta.url));
+  if (!existsSync(bridgeJs)) bridgeJs = fileURLToPath(new URL("../dist/access-bridge.js", import.meta.url));
+  const configPath = join(dir, "mcp.json");
+  writeFileSync(
+    configPath,
+    JSON.stringify({ mcpServers: { resolvroom_access: { command: process.execPath, args: [bridgeJs], env: { RR_ACCESS_SOCKET: socketPath, RR_ACCESS_TOKEN: token } } } }),
+    { mode: 0o600 },
+  );
+  return {
+    configPath,
+    close: () => {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 export const CONSULT_PREAMBLE = [
