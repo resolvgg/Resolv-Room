@@ -1,4 +1,7 @@
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { resolve } from "node:path";
+import { alwaysDenyPatterns, globToRegExp, normalizePath } from "@resolvroom/protocol";
 
 export interface Io {
   out(text: string): void;
@@ -7,6 +10,8 @@ export interface Io {
   isTTY: boolean;
   env: NodeJS.ProcessEnv;
   cwd: string;
+  /** Set by wizards that already read stdin line by line, so nested prompts share it instead of opening a second reader. */
+  reader?: LineReader;
 }
 
 export class UsageError extends Error {
@@ -26,6 +31,7 @@ export function parseDuration(text: string): number {
 }
 
 export async function confirm(io: Io, question: string): Promise<boolean> {
+  if (io.reader) return io.reader.yesNo(io, question, false);
   if (!io.isTTY) return false;
   io.out(`${question} [y/N] `);
   const rl = createInterface({ input: io.stdin, terminal: false });
@@ -87,4 +93,19 @@ export class LineReader {
   close(): void {
     this.rl.close();
   }
+}
+
+/**
+ * Why a folder cannot be the agent's working folder, or null when it is fine. The Claude Code runner refuses
+ * "/", the home folder itself and anything on the hard deny list, so the daemon would reject every request.
+ */
+export function workdirProblem(dir: string, home: string): string | null {
+  const abs = resolve(dir);
+  if (!existsSync(abs)) return `${abs} does not exist`;
+  if (!statSync(abs).isDirectory()) return `${abs} is not a folder`;
+  const real = normalizePath(realpathSync(abs));
+  if (real === "/") return "the whole disk (/) cannot be shared";
+  if (real === normalizePath(realpathSync(home))) return `your whole home folder (${real}) cannot be shared; pick a project folder inside it`;
+  if (alwaysDenyPatterns(home).some((g) => globToRegExp(g).test(real))) return `${real} holds secrets or system files and is always denied`;
+  return null;
 }

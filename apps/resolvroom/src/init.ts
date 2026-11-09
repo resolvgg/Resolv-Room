@@ -1,9 +1,11 @@
-import { hostname } from "node:os";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir, hostname } from "node:os";
+import { join, resolve } from "node:path";
 import { ConfigStore, resolveHome } from "@resolvroom/core";
 import { tailscaleSelf } from "@resolvroom/daemon";
 import type { Exec, TailscaleSelf } from "@resolvroom/daemon";
 import { runProcess } from "@resolvroom/runner";
-import { LineReader, opts, sleep } from "./util.js";
+import { LineReader, opts, sleep, workdirProblem } from "./util.js";
 import type { Io } from "./util.js";
 import { serviceCommand, servicePaths } from "./service.js";
 
@@ -166,7 +168,7 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     // 4. Claude Code
     io.out(`\n4/6  Claude Code\n`);
     if (claude && !values["no-claude"]) {
-      await deps.installClaude(values.yes || !interactive ? ["--yes"] : [], { ...io, stdin: io.stdin }).catch((e) => io.out(`  ✖ ${(e as Error).message}\n`));
+      await deps.installClaude(values.yes || !interactive ? ["--yes"] : [], { ...io, ...(reader ? { reader } : {}) }).catch((e) => io.out(`  ✖ ${(e as Error).message}\n`));
     } else {
       io.out(claude ? "  • Skipped (--no-claude).\n" : "  • Claude Code not found; skipping the MCP server and /room command.\n");
     }
@@ -179,12 +181,26 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     else {
       const want = values.service ?? (await yesNo(`  Run the daemon as a background service${headless ? " (recommended on a server)" : ""}?`, headless));
       if (want) {
-        let workdir = values.workdir;
-        if (!workdir && reader) {
-          const a = await reader.ask(io, `  Folder the agent may read once you approve a request [${io.cwd}]: `);
-          workdir = a && a.trim() ? a.trim() : undefined;
+        const home = io.env.HOME ?? homedir();
+        let workdir: string | undefined = values.workdir ? resolve(io.cwd, values.workdir) : undefined;
+        if (!workdir) {
+          const fallback = join(home, "resolvroom-workspace");
+          const suggested = workdirProblem(io.cwd, home) === null ? io.cwd : fallback;
+          for (let i = 0; i < 5 && !workdir; i++) {
+            const a = reader ? await reader.ask(io, `  Folder the agent may read once you approve a request [${suggested}]: `) : null;
+            const dir = resolve(io.cwd, (a ?? "").trim().replace(/^~(?=$|\/)/, home) || suggested);
+            if (!existsSync(dir) && (dir === fallback || (reader && (await reader.yesNo(io, `  ${dir} does not exist. Create it?`, true))))) {
+              mkdirSync(dir, { recursive: true });
+              io.out(`  ✔ created ${dir}\n`);
+            }
+            const problem = workdirProblem(dir, home);
+            if (problem) io.out(`  ✖ ${problem}\n`);
+            else workdir = dir;
+            if (!reader) break;
+          }
         }
-        service = (await serviceCommand(["install", "--yes", ...(workdir ? ["--workdir", workdir] : [])], io)) === 0;
+        if (!workdir) io.out("  • No usable folder; not installing the service. Later:  resolvroom service install --workdir <project folder>\n");
+        else service = (await serviceCommand(["install", "--yes", "--workdir", workdir], io)) === 0;
       }
       else io.out("  • Not installing. Start it yourself with `resolvroom start`.\n");
     }

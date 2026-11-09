@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ConfigStore } from "@resolvroom/core";
 import { initCommand, mergeTags, tagsAreSet, ACL_SNIPPET } from "../src/init.js";
 import { launchdPlist, servicePaths, systemdUnit } from "../src/service.js";
+import { confirm, workdirProblem } from "../src/util.js";
 import type { Io } from "../src/util.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "rr-init-"));
@@ -194,6 +195,37 @@ describe("init wizard (fake tailscale)", () => {
     expect(await run).toBe(0);
     expect(t.out()).toContain("Tags applied");
   }, 20000);
+
+  it("the Claude Code confirm shares the wizard's reader: one answer is not reused, and stdin keeps working", async () => {
+    const dir = tmp();
+    const { bin } = fakeTailscale(dir, { tags: ["tag:resolvroom"], allowed: ALL });
+    const claude = join(bin, "claude");
+    writeFileSync(claude, '#!/bin/sh\necho "9.9.9 (Fake)"\n');
+    chmodSync(claude, 0o755);
+    const t = ctx(dir, bin, { isTTY: true });
+    let proceed: boolean | undefined;
+    const run = initCommand([], t.io, { installClaude: async (_a, io2) => ((proceed = await confirm(io2, "Proceed?")), 0) });
+    for (const line of ["n", "y", "n"]) {
+      await new Promise((r) => setTimeout(r, 300));
+      t.stdin.write(`${line}\n`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    t.stdin.end();
+    expect(await run).toBe(0);
+    expect(proceed).toBe(true);
+    expect(t.out()).toContain("Not installing");
+  }, 20000);
+
+  it("workdirProblem refuses /, the home folder and secret folders", () => {
+    const home = tmp();
+    mkdirSync(join(home, "proj"));
+    mkdirSync(join(home, ".ssh"));
+    expect(workdirProblem("/", home)).toMatch(/whole disk/);
+    expect(workdirProblem(home, home)).toMatch(/home folder/);
+    expect(workdirProblem(join(home, ".ssh"), home)).toMatch(/always denied/);
+    expect(workdirProblem(join(home, "nope"), home)).toMatch(/does not exist/);
+    expect(workdirProblem(join(home, "proj"), home)).toBeNull();
+  });
 
   it("no Tailscale: stops with the install link", async () => {
     const dir = tmp();

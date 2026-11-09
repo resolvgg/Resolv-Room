@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runProcess } from "@resolvroom/runner";
-import { UsageError, confirm, opts } from "./util.js";
+import { UsageError, confirm, opts, workdirProblem } from "./util.js";
 import type { Io } from "./util.js";
 
 export interface ServiceSpec {
@@ -87,6 +87,8 @@ export async function serviceCommand(args: string[], io: Io): Promise<number> {
     return 0;
   }
 
+  const workdirIssue = workdirProblem(resolve(io.cwd, values.workdir ?? "."), io.env.HOME ?? homedir());
+  if (workdirIssue && values.agent !== "mock") throw new UsageError(`--workdir: ${workdirIssue}`);
   const spec: ServiceSpec = {
     node: process.execPath,
     bin: resolve(io.cwd, process.argv[1] ?? ""),

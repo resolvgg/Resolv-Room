@@ -9,7 +9,7 @@ import type { DaemonOptions } from "@resolvroom/daemon";
 import { roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
 import type { PermissionProfile } from "@resolvroom/protocol";
 import { ClaudeCodeRunner, MockRunner, runProcess } from "@resolvroom/runner";
-import { UsageError, confirm, opts, parseDuration } from "./util.js";
+import { UsageError, confirm, opts, parseDuration, workdirProblem } from "./util.js";
 import { approvalsCommand, pairCommand } from "./pair.js";
 import { serviceCommand } from "./service.js";
 import { initCommand } from "./init.js";
@@ -270,6 +270,10 @@ async function startCommand(args: string[], io: Io): Promise<number> {
 
   const workdir = resolve(io.cwd, values.workdir ?? ".");
   const agent = values.agent ?? "claude-code";
+  if (agent === "claude-code") {
+    const problem = workdirProblem(workdir, io.env.HOME ?? homedir());
+    if (problem) throw new UsageError(`--workdir: ${problem}. Start the daemon inside (or with --workdir) the project folder you want to share.`);
+  }
   const runner =
     agent === "mock"
       ? new MockRunner({ name })
