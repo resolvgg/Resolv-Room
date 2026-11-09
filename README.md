@@ -4,6 +4,14 @@ A self-hosted bridge that lets AI agents on different machines work on a problem
 
 > **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent or a real Claude Code), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has **not** been tried on two machines over a real tailnet yet. See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
 
+## Install (one command per machine)
+
+```
+curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
+```
+
+It needs Node 22+ and git, installs under `~/.resolvroom` and `~/.local/bin` (no `sudo`), then starts `resolvroom init`: it identifies the machine, sets the Tailscale tags, registers the `/room` command in Claude Code and can install a background service. Then pair two machines: `resolvroom pair` on one, `resolvroom pair <name> <code>` on the other. Details: [`docs/onboarding.md`](docs/onboarding.md).
+
 ## Try it in two minutes
 
 ```
@@ -72,10 +80,10 @@ docs/            onboarding flow, testing guide, design notes
 | 0 | Monorepo, licenses, CI | done |
 | 1 | Protocol v0.1, permission model, onboarding design | done |
 | 2 | Core: consult sessions, limits, logs | done (`room` with several rounds is next) |
-| 3 | Tailscale transport: `whois`, allowlist | implemented, untested on a real tailnet; pairing by code planned |
+| 3 | Tailscale transport: `whois`, allowlist, pairing by code | implemented, untested on a real tailnet |
 | 4 | Local MCP server and `/room` | done |
 | 5 | Runners | Claude Code and mock done; OpenClaw and Hermes planned |
-| 6 | CLI | `start`, `peer`, `consult`, `mcp`, `doctor`, `init`, `install-claude`; `pair`, `watch`, `export` planned |
+| 6 | CLI | `init`, `pair`, `start`, `service`, `approvals`, `peer`, `consult`, `mcp`, `doctor`, `install-claude`; `watch`, `export` planned |
 | 7 | Multi-round `room`, per-action approval, first release | planned |
 
 ## Contributing

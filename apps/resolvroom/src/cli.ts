@@ -349,7 +349,7 @@ async function doctorCommand(io: Io): Promise<number> {
   }
 
   try {
-    const { code, stdout } = await runProcess("claude", ["--version"], "", 10_000);
+    const { code, stdout } = await runProcess("claude", ["--version"], "", 10_000, { env: io.env });
     if (code === 0) ok(`Claude Code: ${stdout.trim()}`);
     else bad("Claude Code returned an error for --version");
   } catch {
@@ -376,9 +376,10 @@ async function installClaudeCommand(args: string[], io: Io): Promise<number> {
   const cmdFile = join(claudeDir, "commands", "room.md");
   const wanted = roomCommandMarkdown();
   const bin = realpathSync(process.argv[1] ?? "");
-  const mcpArgs = ["mcp", "add", "--scope", "user"];
+  // The name must come before -e: -e takes a list and would swallow it.
+  const mcpArgs = ["mcp", "add", "--scope", "user", "resolvroom"];
   if (io.env.RESOLVROOM_HOME) mcpArgs.push("-e", `RESOLVROOM_HOME=${io.env.RESOLVROOM_HOME}`);
-  mcpArgs.push("resolvroom", "--", process.execPath, bin, "mcp");
+  mcpArgs.push("--", process.execPath, bin, "mcp");
 
   io.out(`This will:\n  1. write the /room command to ${cmdFile}\n  2. run: claude ${mcpArgs.join(" ")}\n`);
   if (values.print) {
@@ -398,12 +399,12 @@ async function installClaudeCommand(args: string[], io: Io): Promise<number> {
     io.out(`✔ wrote ${cmdFile}\n`);
   }
   try {
-    const got = await runProcess("claude", ["mcp", "get", "resolvroom"], "", 15_000);
+    const got = await runProcess("claude", ["mcp", "get", "resolvroom"], "", 15_000, { env: io.env });
     if (got.code === 0) {
       io.out("• MCP server \"resolvroom\" is already registered in Claude Code\n");
       return 0;
     }
-    const add = await runProcess("claude", mcpArgs, "", 30_000);
+    const add = await runProcess("claude", mcpArgs, "", 30_000, { env: io.env });
     if (add.code !== 0) throw new Error(add.stderr.trim() || add.stdout.trim() || `exit ${add.code}`);
     io.out('✔ registered the MCP server "resolvroom" in Claude Code (user scope)\n');
   } catch (err) {

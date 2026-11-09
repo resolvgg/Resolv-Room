@@ -55,14 +55,22 @@ node apps/resolvroom/dist/bin.js install-claude      # asks first
 
 This is the test that matters and the one that has **not** been run yet. Take two machines on the same tailnet (A and B), both with Node 22, `pnpm build` done, and Claude Code installed.
 
-1. **Tags (once).** In the Tailscale admin console add the `tagOwners` and ACL from [`spec/permissions-v0.1.md`](../spec/permissions-v0.1.md) section 5. On each machine: `tailscale set --advertise-tags=tag:resolvroom,tag:resolvroom-ask`.
+1. **Install and set up.** Run the one-line installer above on both machines. `resolvroom init` sets the tags (it prints the policy blocks to paste in the Tailscale admin console the first time) and offers the background service.
 2. **Doctor.** `resolvroom doctor` on both: Node, Tailscale name, the tag, Claude Code.
-3. **Allow each other.** On A: `resolvroom peer allow <name-of-B>`. On B: `resolvroom peer allow <name-of-A>`. Names are the Tailscale node names.
+3. **Pair.** On B: `resolvroom pair` (prints a code). On A: `resolvroom pair <name-of-B> <code>`. Names are the Tailscale node names. (Or add each other by hand with `resolvroom peer allow <name>` on both sides.)
 4. **Start.** On both, inside the project folder you are willing to share: `resolvroom start`. The daemon listens only on the Tailscale IP, port 7777.
-5. **Consult.** On A: `resolvroom consult <name-of-B> "ping"`. B's terminal shows who is asking and what the agent can read; answer `y`.
+5. **Consult.** On A: `resolvroom consult <name-of-B> "ping"`. B's terminal shows who is asking and what the agent can read; answer `y`. If B runs as a background service, answer with `resolvroom approvals --watch` on B.
 6. **`/room`.** On A: `resolvroom install-claude`, restart Claude Code, then `/room <what you want solved>`.
 
 What to look for: the prompt on B names A (from `whois`, not from the message); a third machine that is not allowed gets `not_allowed`; stopping B's daemon gives "peer unavailable" at once.
+
+## Installer and guided setup
+
+```
+curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
+```
+
+Tested here: the installer end to end from a local clone (download, build, link), `resolvroom init` against a fake `tailscale` binary (tags applied, other tags kept, policy-missing loop, sudo hint, no Tailscale), and `install-claude` against the real `claude mcp add` (it reports `Connected`). Not tested here: the real `tailscale set --advertise-tags` and a real tailnet policy, `systemd --user` and `launchd` (the generated files are unit-tested, starting them is not), and `curl | sh` from the real GitHub URL on a fresh machine.
 
 ## What has and has not been verified
 
@@ -77,4 +85,4 @@ What to look for: the prompt on B names A (from `whois`, not from the message); 
 | Two machines over a real tailnet | **not tested** |
 | Windows | not tested |
 
-Known gaps in this version: no pairing by code (use `peer allow` on both sides), `consult` only (no multi-round `room`), the `ask` approval is once per session (not per file or command), and `exec` is never granted.
+Known gaps in this version: `consult` only (no multi-round `room`), the `ask` approval is once per session (not per file or command), and `exec` is never granted.

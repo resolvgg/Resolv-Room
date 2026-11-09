@@ -102,6 +102,8 @@ describe("misc", () => {
     const t = io(home);
     expect(await main(["install-claude", "--print"], t.io)).toBe(0);
     expect(t.out()).toContain("claude mcp add --scope user");
+    // regression: -e takes a list, so the server name must come before it
+    expect(t.out()).toContain("add --scope user resolvroom -e RESOLVROOM_HOME=");
     expect(t.out()).toContain("/room");
     expect(t.out()).toContain("allowed-tools: mcp__resolvroom__consult");
     expect(existsSync(join(home, "claude", "commands", "room.md"))).toBe(false);

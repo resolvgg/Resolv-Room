@@ -142,7 +142,14 @@ export async function initCommand(args: string[], io: Io, deps: InitDeps): Promi
     if (!canService) io.out("  • Not available on this OS. Run `resolvroom start` in a terminal.\n");
     else {
       const want = values.service ?? (await yesNo(`  Run the daemon as a background service${headless ? " (recommended on a server)" : ""}?`, headless));
-      if (want) service = (await serviceCommand(["install", "--yes", ...(values.workdir ? ["--workdir", values.workdir] : [])], io)) === 0;
+      if (want) {
+        let workdir = values.workdir;
+        if (!workdir && reader) {
+          const a = await reader.ask(io, `  Folder the agent may read once you approve a request [${io.cwd}]: `);
+          workdir = a && a.trim() ? a.trim() : undefined;
+        }
+        service = (await serviceCommand(["install", "--yes", ...(workdir ? ["--workdir", workdir] : [])], io)) === 0;
+      }
       else io.out("  • Not installing. Start it yourself with `resolvroom start`.\n");
     }
 

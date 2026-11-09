@@ -29,6 +29,18 @@ Each daemon listens only on the Tailscale interface of its machine (never `0.0.0
 | `GET /v1/ping` | Liveness and capability probe. Returns `{ "v": "0.1", "peer": "<name>", "agents": ["claude-code", ...] }`. A host MUST call it before opening a session. If the peer does not answer, the session is not created and the caller gets a clear "peer unavailable" error. |
 | `POST /v1/envelopes` | Delivers one envelope (body is the envelope). `202` when accepted. Refusals are `4xx` with the body `{ "error": { "code": "...", "message": "..." } }`: `400` invalid envelope (`protocol_violation`), `403` identity mismatch (`permission_denied`) or not on the allowlist (`not_allowed`), `404` unknown session, `413` body over 1 MiB. |
 
+| `POST /v1/pair` | Redeems a pairing code: body `{ "code": "XXXX-XXXX" }`. `200 { "ok": true, "peer": "<name>" }` when the code matches; otherwise `403` (or `429` once the window is locked) with the code `pairing_failed`, deliberately vague. See section 3.1. |
+
+### 3.1 Pairing
+
+Pairing replaces adding each other to the allowlist by hand. It is the only request accepted from a node that is not on the allowlist.
+
+1. On machine B the owner opens a pairing window. B shows a code `XXXX-XXXX` (8 characters from an alphabet without look-alikes), valid for 5 minutes, single use, 3 attempts. Opening a new window replaces the old one.
+2. On machine A the owner redeems it with `POST /v1/pair`. B checks the code in constant time and, on a real tailnet, that A's node carries `tag:resolvroom` (from `whois`). A wrong code, a missing tag, an expired or absent window all look the same to the caller.
+3. On success B adds A to its allowlist as `ask`, read-only (an existing entry is never changed), and A adds B the same way when it gets the `200`.
+
+Any tagged node can burn the attempts of an open window (a denial of service on a 5-minute window, not a way in): the owner just opens a new one. Pairing never grants `auto`; that is a separate, deliberate step.
+
 Where to reach a peer: `peers[].endpoint` in the config, otherwise `http://<peer>:7777` (MagicDNS). Pairing endpoints are not specified yet (see `docs/onboarding.md`).
 
 ## 4. Envelope
