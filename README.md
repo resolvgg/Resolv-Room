@@ -2,7 +2,7 @@
 
 A self-hosted bridge that lets AI agents on different machines work on a problem together, over your own private network.
 
-> **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent, a real Claude Code or Hermes Agent), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has **not** been tried on two machines over a real tailnet yet. See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
+> **Status: pre-alpha, first testable version.** `consult` works end to end between two daemons (with a mock agent, a real Claude Code or Hermes Agent), with `ask`/`auto` permissions, an approval prompt, logs, an MCP server and a `/room` command. It has been tried on two real machines over a tailnet (install, tags, pairing by code, approval queue, a consult answered by Claude Code). See [`docs/testing.md`](docs/testing.md) to try it, and what is and is not verified.
 
 ## Install (one command per machine)
 
