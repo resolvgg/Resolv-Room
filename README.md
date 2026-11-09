@@ -41,6 +41,16 @@ The agent works on your request first, builds a proposal, sends it to the agent 
 
 In Hermes Agent, `resolvroom install-hermes` registers the same MCP server (`hermes mcp add`) and a `room` skill, so `/room …` works there too.
 
+## Just ask
+
+You do not need `/room`. `install-claude` / `install-hermes` also add a `resolvroom` skill that loads by itself when you ask, in any words, to migrate, move, copy or send something to another machine, or to get a second opinion from it:
+
+```
+Preciso migrar o projeto igestao para o ThinkPad e transferir os dados.
+```
+
+The agent surveys the project, sends it (`send_files`; you confirm, the other owner accepts), asks the agent there to check what arrived (`consult`), and gives you a checklist of what must be moved by hand (`.env`, database dumps, services). Short machine names work ("ThinkPad" → `isantoandrethinkpadai`); the MCP server tells the agent which machines exist.
+
 ## Send files
 
 ```

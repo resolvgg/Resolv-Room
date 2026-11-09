@@ -70,6 +70,8 @@ What to look for: the prompt on B names A (from `whois`, not from the message); 
 curl -fsSL https://raw.githubusercontent.com/resolvgg/Resolv-Room/main/install.sh | sh
 ```
 
+Natural-language flow: verified with the real Claude Code and two local daemons. The prompt "Preciso migrar o projeto igestao para o ThinkPad e transferir os dados." loaded the `resolvroom` skill, then `peers`, a survey of the project, `send_files` with peer "thinkpad" (resolved to the full name), and `consult`; the `.env` was left out and listed for manual transfer.
+
 File transfer: tested between two local daemons over HTTP (CLI `send`, MCP `send_files`, declined offer, secrets and `node_modules`/`.git` left out, exec bit kept, 3 MB file, hash checks, traversal and token checks in unit tests). Not yet tried between two real machines.
 
 Access requests mid-run: verified with the real Claude Code (opt-in test `RESOLVROOM_REAL_CLAUDE=1`): the agent read a file outside the shared folder after the approval callback said yes, did not when it said no, and a `.env` next to it was refused without asking.

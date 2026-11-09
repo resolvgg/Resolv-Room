@@ -8,7 +8,7 @@ import type { PermissionProfile } from "@resolvroom/protocol";
 import { ControlClient, startDaemon } from "@resolvroom/daemon";
 import type { DaemonHandle } from "@resolvroom/daemon";
 import { MockRunner } from "@resolvroom/runner";
-import { createMcpServer, formatOutcome, roomCommandMarkdown, roomInstructions } from "../src/index.js";
+import { createMcpServer, formatOutcome, peerSkillMarkdown, roomCommandMarkdown, roomInstructions, serverInstructions } from "../src/index.js";
 import type { DaemonApi } from "../src/index.js";
 
 async function connect(api: DaemonApi): Promise<Client> {
@@ -59,6 +59,27 @@ describe("tools and prompt (fake daemon)", () => {
     const r = await c.callTool({ name: "consult", arguments: { peer: "x", goal: "g", proposal: "p" } });
     expect(r.isError).toBe(true);
     expect(textOf(r)).toContain("not running");
+  });
+
+  it("short machine names resolve to the peer; ambiguous ones are an error the agent can read", async () => {
+    const seen: string[] = [];
+    const c = await connect({
+      peers: async () => [{ peer: "isantoandrethinkpadai", mode: "ask", capabilities: { read: true, write: false, exec: false, network: false } }, { peer: "kalivictor", mode: "ask", capabilities: { read: true, write: false, exec: false, network: false } }, { peer: "kali-old", mode: "ask", capabilities: { read: true, write: false, exec: false, network: false } }],
+      consult: async (req) => (seen.push(req.peer), { sessionId: "s", peer: req.peer, status: "solved", summary: "ok", durationMs: 1 }),
+    });
+    await c.callTool({ name: "consult", arguments: { peer: "ThinkPad", goal: "g", proposal: "p" } });
+    await c.callTool({ name: "consult", arguments: { peer: "kalivictor", goal: "g", proposal: "p" } });
+    const amb = await c.callTool({ name: "consult", arguments: { peer: "kali", goal: "g", proposal: "p" } });
+    expect(seen).toEqual(["isantoandrethinkpadai", "kalivictor"]);
+    expect(amb.isError).toBe(true);
+    expect(textOf(amb)).toContain("matches several peers");
+  });
+
+  it("server instructions name the machines and when to use the tools", () => {
+    const t = serverInstructions(["isantoandrethinkpadai", "kalivictor"]);
+    expect(t).toContain("isantoandrethinkpadai, kalivictor");
+    expect(t).toMatch(/migrate/);
+    expect(peerSkillMarkdown()).toMatch(/^---\nname: resolvroom\ndescription: .*migrate/);
   });
 
   it("declined and rejected are normal answers; timeout is an error", () => {

@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { ConfigStore, resolveHome } from "@resolvroom/core";
 import { ControlClient, ControlError, QueuePrompter, TerminalPrompter, startDaemon, tailscaleSelf } from "@resolvroom/daemon";
 import type { DaemonOptions } from "@resolvroom/daemon";
-import { formatSend, roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
+import { formatSend, peerSkillMarkdown, roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
 import type { PermissionProfile } from "@resolvroom/protocol";
 import { ClaudeCodeRunner, HermesRunner, MockRunner, runProcess } from "@resolvroom/runner";
 import { installHermesCommand } from "./hermes.js";
@@ -423,6 +423,16 @@ async function doctorCommand(io: Io): Promise<number> {
 
 // ───────────────────────────────── install-claude ─────────────────────────────────
 
+export function writeIfChanged(io: Io, file: string, content: string, label: string): void {
+  if (existsSync(file) && readFileSync(file, "utf8") === content) {
+    io.out(`• ${label} already up to date\n`);
+    return;
+  }
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, content);
+  io.out(`✔ wrote ${file}\n`);
+}
+
 async function installClaudeCommand(args: string[], io: Io): Promise<number> {
   const { values } = opts(args, { yes: { type: "boolean" }, print: { type: "boolean" } });
   const claudeDir = io.env.CLAUDE_CONFIG_DIR && io.env.CLAUDE_CONFIG_DIR.length > 0 ? io.env.CLAUDE_CONFIG_DIR : join(homedir(), ".claude");
@@ -434,7 +444,8 @@ async function installClaudeCommand(args: string[], io: Io): Promise<number> {
   if (io.env.RESOLVROOM_HOME) mcpArgs.push("-e", `RESOLVROOM_HOME=${io.env.RESOLVROOM_HOME}`);
   mcpArgs.push("--", process.execPath, bin, "mcp");
 
-  io.out(`This will:\n  1. write the /room command to ${cmdFile}\n  2. run: claude ${mcpArgs.join(" ")}\n`);
+  const skillFile = join(claudeDir, "skills", "resolvroom", "SKILL.md");
+  io.out(`This will:\n  1. write the /room command to ${cmdFile}\n  2. write the resolvroom skill (loads by itself for "migrate/send/ask the other machine") to ${skillFile}\n  3. run: claude ${mcpArgs.join(" ")}\n`);
   if (values.print) {
     io.out(`\n--- ${cmdFile} ---\n${wanted}`);
     return 0;
@@ -451,6 +462,7 @@ async function installClaudeCommand(args: string[], io: Io): Promise<number> {
     writeFileSync(cmdFile, wanted);
     io.out(`✔ wrote ${cmdFile}\n`);
   }
+  writeIfChanged(io, skillFile, peerSkillMarkdown(), "resolvroom skill");
   try {
     const got = await runProcess("claude", ["mcp", "get", "resolvroom"], "", 15_000, { env: io.env });
     if (got.code === 0) {

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ConsultOutcome } from "@resolvroom/core";
 import { resolve } from "node:path";
 import type { ConsultRequest, PeerSummary, SendOutcome, SendRequest } from "@resolvroom/daemon";
-import { roomInstructions } from "./room.js";
+import { resolvePeer, roomInstructions } from "./room.js";
 
 /** What the MCP server needs from the local daemon. `ControlClient` implements it. */
 export interface DaemonApi {
@@ -38,8 +38,16 @@ function caps(c: { read: boolean; write: boolean; exec: boolean; network: boolea
 
 const OK_STATUSES = new Set<ConsultOutcome["status"]>(["solved", "partial", "unsolved", "declined", "rejected"]);
 
-export function createMcpServer(api: DaemonApi, version = "0.0.0"): McpServer {
-  const server = new McpServer({ name: "resolvroom", version });
+export function createMcpServer(api: DaemonApi, version = "0.0.0", opts: { instructions?: string } = {}): McpServer {
+  const server = new McpServer({ name: "resolvroom", version }, opts.instructions ? { instructions: opts.instructions } : {});
+  /** The real peer name for what the agent typed, or an error text listing the options. */
+  const pick = async (input: string): Promise<{ peer: string } | { error: string }> => {
+    try {
+      return resolvePeer(input, (await api.peers()).map((p) => p.peer));
+    } catch {
+      return { peer: input }; // daemon unreachable: let the call itself report it
+    }
+  };
 
   server.registerTool(
     "consult",
@@ -50,7 +58,7 @@ export function createMcpServer(api: DaemonApi, version = "0.0.0"): McpServer {
         "Use it after you already worked on the problem. The other side may ask its human for approval first, so it can take a while. " +
         "Never include secrets in the proposal.",
       inputSchema: {
-        peer: z.string().min(1).describe("Name of the peer (see the `peers` tool)."),
+        peer: z.string().min(1).describe("Name of the peer (see the `peers` tool); a unique partial name works, e.g. \"thinkpad\"."),
         goal: z.string().min(1).max(4000).describe("What the user asked for, in one or two sentences."),
         proposal: z.string().min(1).max(200000).describe("Your findings and recommended solution, self-contained, plus what you want checked."),
         ask_only: z
@@ -60,7 +68,10 @@ export function createMcpServer(api: DaemonApi, version = "0.0.0"): McpServer {
         max_minutes: z.number().int().min(1).max(60).optional().describe("Give up after this many minutes. Default 5."),
       },
     },
-    async ({ peer, goal, proposal, ask_only, max_minutes }, extra) => {
+    async ({ peer: peerInput, goal, proposal, ask_only, max_minutes }, extra) => {
+      const picked = await pick(peerInput);
+      if ("error" in picked) return { content: [{ type: "text" as const, text: picked.error }], isError: true };
+      const peer = picked.peer;
       try {
         const outcome = await api.consult(
           {
@@ -86,18 +97,21 @@ export function createMcpServer(api: DaemonApi, version = "0.0.0"): McpServer {
       {
         title: "Send files to another machine",
         description:
-          "Copy files or folders from this machine to a Resolv Room peer. The owner of that machine must accept; the files land in its " +
+          "Copy files or folders from this machine to a Resolv Room peer (use it to migrate, move, hand off or share a project with another machine). The owner of that machine must accept; the files land in its " +
           "Resolv Room inbox (never elsewhere) and a later consult to that peer can read them. Secrets (.env, keys, ~/.ssh…) are always " +
           "left out; node_modules/build folders and .git are left out unless asked.",
         inputSchema: {
-          peer: z.string().min(1).describe("Name of the peer (see the `peers` tool)."),
+          peer: z.string().min(1).describe("Name of the peer (see the `peers` tool); a unique partial name works."),
           paths: z.array(z.string().min(1)).min(1).max(50).describe("Files or folders to send (absolute, or relative to the current folder)."),
           message: z.string().max(2000).optional().describe("Short note shown to the receiving human."),
           include_git: z.boolean().optional().describe("Also send .git folders."),
           include_deps: z.boolean().optional().describe("Also send node_modules, build output and caches."),
         },
       },
-      async ({ peer, paths, message, include_git, include_deps }) => {
+      async ({ peer: peerInput, paths, message, include_git, include_deps }) => {
+        const picked = await pick(peerInput);
+        if ("error" in picked) return { content: [{ type: "text" as const, text: picked.error }], isError: true };
+        const peer = picked.peer;
         try {
           const out = await send({
             peer,

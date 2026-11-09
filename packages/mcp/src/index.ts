@@ -1,13 +1,20 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ControlClient } from "@resolvroom/daemon";
 import { createMcpServer } from "./server.js";
+import { serverInstructions } from "./room.js";
 
 export * from "./room.js";
 export * from "./server.js";
 
 /** Runs the MCP server on stdio, talking to the local daemon through its control socket. */
 export async function runStdioServer(socketPath: string): Promise<void> {
-  const server = createMcpServer(new ControlClient(socketPath));
+  const client = new ControlClient(socketPath);
+  // Tell the agent which machines exist so it can map "the ThinkPad" to a peer (best effort: the daemon may be down).
+  const peers = await Promise.race([
+    client.peers().then((list) => list.map((p) => p.peer)),
+    new Promise<string[]>((r) => setTimeout(() => r([]), 1500)),
+  ]).catch(() => [] as string[]);
+  const server = createMcpServer(client, undefined, { instructions: serverInstructions(peers) });
   await new Promise<void>((resolve, reject) => {
     server.server.onclose = () => resolve();
     // The client went away (stdin closed) without a proper shutdown: stop instead of hanging.

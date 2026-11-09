@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { roomSkillMarkdown } from "@resolvroom/mcp";
+import { peerSkillMarkdown, roomSkillMarkdown } from "@resolvroom/mcp";
 import { runProcess } from "@resolvroom/runner";
 import { confirm, opts } from "./util.js";
 import type { Io } from "./util.js";
@@ -22,11 +22,12 @@ export function hermesMcpAddArgs(node: string, bin: string, env: NodeJS.ProcessE
 export async function installHermesCommand(args: string[], io: Io): Promise<number> {
   const { values } = opts(args, { yes: { type: "boolean" }, print: { type: "boolean" } });
   const skillFile = join(hermesHome(io), "skills", "resolvroom", "room", "SKILL.md");
+  const peerSkill = join(hermesHome(io), "skills", "resolvroom", "resolvroom", "SKILL.md");
   const wanted = roomSkillMarkdown();
   const bin = realpathSync(process.argv[1] ?? "");
   const mcpArgs = hermesMcpAddArgs(process.execPath, bin, io.env);
 
-  io.out(`This will:\n  1. write the /room skill to ${skillFile}\n  2. run: hermes ${mcpArgs.join(" ")}\n`);
+  io.out(`This will:\n  1. write the /room skill to ${skillFile}\n  2. write the resolvroom skill (for "migrate/send/ask the other machine") to ${peerSkill}\n  3. run: hermes ${mcpArgs.join(" ")}\n`);
   if (values.print) {
     io.out(`\n--- ${skillFile} ---\n${wanted}`);
     return 0;
@@ -42,6 +43,12 @@ export async function installHermesCommand(args: string[], io: Io): Promise<numb
     writeFileSync(skillFile, wanted);
     io.out(`✔ wrote ${skillFile}\n`);
   }
+  const peerCurrent = existsSync(peerSkill) ? readFileSync(peerSkill, "utf8") : undefined;
+  if (peerCurrent !== peerSkillMarkdown()) {
+    mkdirSync(dirname(peerSkill), { recursive: true });
+    writeFileSync(peerSkill, peerSkillMarkdown());
+    io.out(`✔ wrote ${peerSkill}\n`);
+  } else io.out("• resolvroom skill already up to date\n");
   try {
     const list = await runProcess("hermes", ["mcp", "list"], "", 30_000, { env: io.env });
     if (list.code === 0 && /^\s*resolvroom\s/m.test(list.stdout)) {
