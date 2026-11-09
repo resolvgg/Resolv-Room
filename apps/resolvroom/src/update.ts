@@ -59,6 +59,14 @@ export async function updateCommand(args: string[], io: Io, binPath = process.ar
     if (existsSync(bin)) chmodSync(bin, 0o755);
     io.out(`✔ Updated ${before.slice(0, 7)} -> ${after.slice(0, 7)}\n`);
     if (changes) io.out(`${changes.split("\n").slice(0, 15).map((l) => `  ${l}`).join("\n")}\n`);
+    // Refresh the agent integrations already installed (new skills, command text), using the NEW build.
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+    const hermesDir = io.env.HERMES_HOME || join(home, ".hermes");
+    for (const [cmd, marker] of [["install-claude", join(claudeDir, "commands", "room.md")], ["install-hermes", join(hermesDir, "skills", "resolvroom", "room", "SKILL.md")]] as const) {
+      if (!existsSync(marker) || !existsSync(bin)) continue;
+      const r = await runProcess(process.execPath, [bin, cmd, "--yes"], "", 120_000, { env });
+      io.out(r.code === 0 ? `✔ Refreshed ${cmd === "install-claude" ? "Claude Code" : "Hermes"} integration\n` : `• Could not refresh ${cmd}: run  resolvroom ${cmd}\n`);
+    }
   } catch (err) {
     io.err(`✖ ${(err as Error).message}\n  If the build is broken, reinstall with the curl command from the README.\n`);
     return 1;
