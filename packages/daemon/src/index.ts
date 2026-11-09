@@ -4,3 +4,5 @@ export * from "./server.js";
 export * from "./control.js";
 export * from "./prompter.js";
 export * from "./daemon.js";
+export * from "./pairing.js";
+export * from "./approvals.js";

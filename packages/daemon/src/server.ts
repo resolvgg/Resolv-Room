@@ -4,12 +4,14 @@ import { PROTOCOL_VERSION, validateEnvelope } from "@resolvroom/protocol";
 import { IdentityMismatchError, NotAllowedError, UnknownSessionError } from "@resolvroom/core";
 import type { Engine } from "@resolvroom/core";
 import type { IdentityProvider } from "./identity.js";
+import type { PairingManager } from "./pairing.js";
 
 export interface TransportServerOptions {
   engine: Engine;
   identity: IdentityProvider;
   selfName: string;
   agents: string[];
+  pairing?: PairingManager;
   maxBodyBytes?: number;
 }
 
@@ -85,6 +87,23 @@ export function createTransportServer(o: TransportServerOptions): Server {
         throw err;
       }
       return sendJson(res, 202, {});
+    }
+
+    if (req.method === "POST" && url.pathname === "/v1/pair" && o.pairing) {
+      let body: { code?: unknown; reply_endpoint?: unknown };
+      try {
+        body = JSON.parse(await readBody(req, 4096)) as typeof body;
+      } catch {
+        return sendJson(res, 400, errorBody("protocol_violation", "body is not valid JSON"));
+      }
+      const verdict = o.pairing.verify(
+        identity,
+        typeof body.code === "string" ? body.code : "",
+        typeof body.reply_endpoint === "string" ? body.reply_endpoint : undefined,
+      );
+      if (verdict.ok) return sendJson(res, 200, { ok: true, peer: o.selfName });
+      // Deliberately vague: no hint about whether a window is open or which part was wrong.
+      return sendJson(res, verdict.locked ? 429 : 403, errorBody("pairing_failed", "pairing failed"));
     }
 
     sendJson(res, 404, errorBody("protocol_violation", "unknown endpoint"));

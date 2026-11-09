@@ -200,11 +200,12 @@ export function runProcess(
   args: string[],
   stdin: string,
   timeoutMs: number,
-  opts: { cwd?: string; signal?: AbortSignal } = {},
+  opts: { cwd?: string; signal?: AbortSignal; env?: NodeJS.ProcessEnv } = {},
 ): Promise<ProcessResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd: opts.cwd ? resolve(opts.cwd) : undefined,
+      env: opts.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";

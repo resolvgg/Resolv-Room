@@ -4,12 +4,15 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { ConfigStore, resolveHome } from "@resolvroom/core";
-import { ControlClient, ControlError, DenyAllPrompter, TerminalPrompter, startDaemon, tailscaleSelf } from "@resolvroom/daemon";
+import { ControlClient, ControlError, QueuePrompter, TerminalPrompter, startDaemon, tailscaleSelf } from "@resolvroom/daemon";
 import type { DaemonOptions } from "@resolvroom/daemon";
 import { roomCommandMarkdown, runStdioServer } from "@resolvroom/mcp";
 import type { PermissionProfile } from "@resolvroom/protocol";
 import { ClaudeCodeRunner, MockRunner, runProcess } from "@resolvroom/runner";
-import { UsageError, confirm, parseDuration } from "./util.js";
+import { UsageError, confirm, opts, parseDuration } from "./util.js";
+import { approvalsCommand, pairCommand } from "./pair.js";
+import { serviceCommand } from "./service.js";
+import { initCommand } from "./init.js";
 import type { Io } from "./util.js";
 
 export const HELP = `resolvroom: let AI agents on different machines work on a problem together over your tailnet
@@ -17,8 +20,12 @@ export const HELP = `resolvroom: let AI agents on different machines work on a p
 Usage: resolvroom <command> [options]
 
 Setup
-  init                       Check this machine and print the next steps
+  init [--yes] [--auto-eligible] [--service|--no-claude]
+                             Guided setup: identify this machine, set the Tailscale tags, register Claude Code, install the service
   doctor                     Check Node, Tailscale (and its tags), Claude Code and the daemon
+  pair                       Show a pairing code (5 min, single use)
+  pair <peer> <code>         Pair with a machine that is showing a code (no need for peer allow)
+  service install|uninstall  Run the daemon in the background (systemd --user / launchd)
   install-claude [--yes|--print]
                              Register the MCP server with Claude Code and install the /room command
   peer allow <name> [options]  Allow a peer (do this on BOTH machines)
@@ -35,6 +42,7 @@ Run
        --workdir <dir>         folder the agent can read once you approve (default: current folder)
        --agent claude-code|mock
   consult <peer> <goal...> [--proposal <text>] [--ask-only]
+  approvals [--watch]        Requests waiting for your OK (daemons without a terminal); approve <id> | deny <id>
   mcp                        MCP server on stdio (used by Claude Code)
   status                     Ask the running daemon
 
@@ -76,7 +84,17 @@ export async function main(argv: string[], io: Io): Promise<number> {
       case "doctor":
         return await doctorCommand(io);
       case "init":
-        return await initCommand(io);
+        return await initCommand(rest, io, { installClaude: installClaudeCommand });
+      case "pair":
+        return await pairCommand(rest, io);
+      case "approvals":
+        return await approvalsCommand(rest, io, "list");
+      case "approve":
+        return await approvalsCommand(rest, io, "allow");
+      case "deny":
+        return await approvalsCommand(rest, io, "deny");
+      case "service":
+        return await serviceCommand(rest, io);
       case "install-claude":
         return await installClaudeCommand(rest, io);
       default:
@@ -106,14 +124,6 @@ function version(): string {
 }
 
 const store = (io: Io): ConfigStore => new ConfigStore(resolveHome(io.env));
-
-function opts<T extends Record<string, { type: "string" | "boolean"; multiple?: boolean; short?: string }>>(args: string[], options: T) {
-  try {
-    return parseArgs({ args, options, allowPositionals: true, allowNegative: true });
-  } catch (err) {
-    throw new UsageError((err as Error).message);
-  }
-}
 
 // ───────────────────────────────── peers ─────────────────────────────────
 
@@ -269,8 +279,9 @@ async function startCommand(args: string[], io: Io): Promise<number> {
   if (!runner) throw new UsageError('--agent must be "claude-code" or "mock"');
 
   const interactive = io.isTTY || values["stdin-prompts"] === true;
-  const prompter = interactive ? new TerminalPrompter({ input: io.stdin, output: { write: (s: string | Uint8Array) => (io.out(String(s)), true) } as NodeJS.WritableStream }) : new DenyAllPrompter();
-  if (!interactive) io.err("No terminal attached: every request that needs approval will be denied.\n");
+  const queue = interactive ? undefined : new QueuePrompter();
+  const prompter = queue ?? new TerminalPrompter({ input: io.stdin, output: { write: (s: string | Uint8Array) => (io.out(String(s)), true) } as NodeJS.WritableStream });
+  if (!interactive) io.err("No terminal attached: requests that need approval wait in a queue. Answer them with `resolvroom approvals --watch` (or approve/deny <id>).\n");
 
   const options: DaemonOptions = {
     home: resolveHome(io.env),
@@ -281,6 +292,7 @@ async function startCommand(args: string[], io: Io): Promise<number> {
     devTags: values["dev-tags"] ? values["dev-tags"].split(",") : [],
     runner,
     prompter,
+    ...(queue ? { approvals: queue } : {}),
     onError: (e) => io.err(`resolvroom: ${String(e)}\n`),
   };
   const d = await startDaemon(options);
@@ -354,24 +366,6 @@ async function doctorCommand(io: Io): Promise<number> {
   const peers = store(io).load().peers;
   io.out(`• ${peers.length} peer(s) allowed${peers.length ? `: ${peers.map((p) => p.peer).join(", ")}` : ""}\n`);
   return failed === 0 ? 0 : 1;
-}
-
-async function initCommand(io: Io): Promise<number> {
-  const code = await doctorCommand(io);
-  io.out(
-    [
-      "",
-      "Next steps:",
-      "  1. Fix anything marked ✖ above.",
-      "  2. resolvroom install-claude          (registers the MCP server and the /room command in Claude Code)",
-      "  3. resolvroom peer allow <other-machine>   (on BOTH machines)",
-      "  4. resolvroom start                   (keep it running; it asks you before agents act)",
-      '  5. Test:  resolvroom consult <other-machine> "ping"',
-      "     Then in Claude Code:  /room <what you want solved>",
-      "",
-    ].join("\n"),
-  );
-  return code;
 }
 
 // ───────────────────────────────── install-claude ─────────────────────────────────

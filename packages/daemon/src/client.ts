@@ -59,6 +59,21 @@ export class HttpPeerClient implements PeerClient {
     );
   }
 
+  /** Redeems a pairing code on `peer`. `endpoint` overrides where to reach it (needed before it is on the allowlist in tests). */
+  async pair(peer: string, code: string, opts: { endpoint?: string; replyEndpoint?: string } = {}): Promise<{ peer: string }> {
+    const base = (opts.endpoint ?? this.endpointFor(peer)).replace(/\/+$/, "");
+    const res = await this.request(
+      `${base}/v1/pair`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ code, ...(opts.replyEndpoint ? { reply_endpoint: opts.replyEndpoint } : {}) }),
+      },
+      this.o.sendTimeoutMs ?? 10_000,
+    );
+    return (await res.json()) as { peer: string };
+  }
+
   private async request(url: string, init: RequestInit, timeoutMs: number, outer?: AbortSignal): Promise<Response> {
     const signals = [AbortSignal.timeout(timeoutMs)];
     if (outer) signals.push(outer);

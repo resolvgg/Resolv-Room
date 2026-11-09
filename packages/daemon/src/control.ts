@@ -6,6 +6,11 @@ import type { DaemonConfig, Limits, Mode } from "@resolvroom/protocol";
 import { PeerUnavailableError } from "@resolvroom/core";
 import type { ConsultOutcome, Engine } from "@resolvroom/core";
 import { errorBody, readBody, sendJson, BodyTooLarge } from "./server.js";
+import type { ConfigStore } from "@resolvroom/core";
+import type { HttpPeerClient } from "./client.js";
+import type { PairingManager, PairingStatus } from "./pairing.js";
+import { DEFAULT_PAIR_PROFILE } from "./pairing.js";
+import type { PendingApproval, QueuePrompter } from "./approvals.js";
 
 export interface ControlServerOptions {
   engine: Engine;
@@ -13,6 +18,20 @@ export interface ControlServerOptions {
   selfName: string;
   agents: string[];
   socketPath: string;
+  store?: ConfigStore;
+  pairing?: PairingManager;
+  pairClient?: HttpPeerClient;
+  /** Present when the daemon has no terminal and queues approvals. */
+  approvals?: QueuePrompter;
+}
+
+export interface PairJoinRequest {
+  peer: string;
+  code: string;
+  /** Where to reach the peer, if not http://<peer>:7777. */
+  endpoint?: string;
+  /** Dev identity only: where the peer should reply to us. */
+  reply_endpoint?: string;
 }
 
 export interface ConsultRequest {
@@ -132,6 +151,66 @@ export function createControlServer(o: ControlServerOptions): Server {
           throw err;
         }
       }
+      const readJson = async (): Promise<[unknown, undefined] | [undefined, [number, unknown]]> => {
+        try {
+          return [JSON.parse(await readBody(r, 16 * 1024)), undefined];
+        } catch {
+          return [undefined, [400, errorBody("invalid_request", "body is not valid JSON")]];
+        }
+      };
+
+      if (o.pairing && o.store && o.pairClient) {
+        if (r.method === "POST" && url.pathname === "/control/pair/start") {
+          return [200, o.pairing.start()];
+        }
+        if (r.method === "GET" && url.pathname === "/control/pair/status") {
+          return [200, o.pairing.status()];
+        }
+        if (r.method === "POST" && url.pathname === "/control/pair/cancel") {
+          o.pairing.cancel();
+          return [200, {}];
+        }
+        if (r.method === "POST" && url.pathname === "/control/pair/join") {
+          const [body, bad] = await readJson();
+          if (bad) return bad;
+          const b = body as Partial<PairJoinRequest>;
+          if (typeof b.peer !== "string" || b.peer.length === 0 || typeof b.code !== "string" || b.code.length === 0) {
+            return [400, errorBody("invalid_request", "peer and code are required")];
+          }
+          try {
+            await o.pairClient.pair(b.peer, b.code, {
+              ...(b.endpoint ? { endpoint: b.endpoint } : {}),
+              ...(b.reply_endpoint ? { replyEndpoint: b.reply_endpoint } : {}),
+            });
+          } catch (err) {
+            const status = (err as { status?: number }).status;
+            if (status === 429) return [403, errorBody("pairing_locked", "the other side closed the pairing window after too many wrong codes; run `resolvroom pair` there again")];
+            if (status === 403) return [403, errorBody("pairing_failed", "pairing failed: wrong or expired code, or this node is missing tag:resolvroom")];
+            return [502, errorBody("peer_unavailable", (err as Error).message)];
+          }
+          if (!o.store.findPeer(b.peer)) o.store.upsertPeer(b.peer, DEFAULT_PAIR_PROFILE, b.endpoint);
+          return [200, { peer: b.peer }];
+        }
+      }
+
+      if (o.approvals) {
+        if (r.method === "GET" && url.pathname === "/control/approvals") {
+          return [200, { approvals: o.approvals.list() }];
+        }
+        if (r.method === "POST" && url.pathname === "/control/approvals/answer") {
+          const [body, bad] = await readJson();
+          if (bad) return bad;
+          const b = body as { id?: unknown; answer?: unknown };
+          if (typeof b.id !== "string" || (b.answer !== "allow" && b.answer !== "deny")) {
+            return [400, errorBody("invalid_request", 'id and answer ("allow" or "deny") are required')];
+          }
+          const res = o.approvals.answer(b.id, b.answer);
+          if (res === "not_found") return [404, errorBody("not_found", "no such pending request (it may have timed out)")];
+          if (res === "ambiguous") return [400, errorBody("invalid_request", "that id matches more than one request; type more characters")];
+          return [200, {}];
+        }
+      }
+
       return [404, errorBody("not_found", "unknown endpoint")];
     }
   });
@@ -192,6 +271,30 @@ export class ControlClient {
 
   async peers(): Promise<PeerSummary[]> {
     return (await this.call<{ peers: PeerSummary[] }>("GET", "/control/peers")).peers;
+  }
+
+  pairStart(): Promise<{ code: string; expiresAt: string }> {
+    return this.call("POST", "/control/pair/start", {});
+  }
+
+  pairStatus(): Promise<PairingStatus> {
+    return this.call("GET", "/control/pair/status");
+  }
+
+  pairCancel(): Promise<unknown> {
+    return this.call("POST", "/control/pair/cancel", {});
+  }
+
+  pairJoin(req: PairJoinRequest): Promise<{ peer: string }> {
+    return this.call("POST", "/control/pair/join", req);
+  }
+
+  async approvals(): Promise<PendingApproval[]> {
+    return (await this.call<{ approvals: PendingApproval[] }>("GET", "/control/approvals")).approvals;
+  }
+
+  answerApproval(id: string, answer: "allow" | "deny"): Promise<unknown> {
+    return this.call("POST", "/control/approvals/answer", { id, answer });
   }
 
   consult(req: ConsultRequest, signal?: AbortSignal): Promise<ConsultOutcome> {

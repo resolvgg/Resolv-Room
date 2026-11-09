@@ -8,6 +8,8 @@ import { createControlServer, listenOnSocket } from "./control.js";
 import { DevIdentityProvider, TailscaleIdentityProvider, isLoopback } from "./identity.js";
 import type { IdentityProvider } from "./identity.js";
 import { createTransportServer } from "./server.js";
+import { PairingManager } from "./pairing.js";
+import type { QueuePrompter } from "./approvals.js";
 
 export interface DaemonOptions {
   home: string;
@@ -22,6 +24,8 @@ export interface DaemonOptions {
   devTags?: string[];
   runner: Runner;
   prompter: Prompter;
+  /** Pass the same object as `prompter` when it is a QueuePrompter, so the control API can list and answer requests. */
+  approvals?: QueuePrompter;
   logs?: LogStore;
   identityProvider?: IdentityProvider;
   heartbeatMs?: number;
@@ -65,7 +69,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const agents = [o.runner.agent];
   const identity = o.identityProvider ?? (o.identity === "dev" ? new DevIdentityProvider() : new TailscaleIdentityProvider());
 
-  const transport = createTransportServer({ engine, identity, selfName: o.name, agents });
+  const pairing = new PairingManager({ store, requireTag: o.identity === "tailscale", trustReplyEndpoint: o.identity === "dev" });
+  const transport = createTransportServer({ engine, identity, selfName: o.name, agents, pairing });
   await new Promise<void>((resolve, reject) => {
     transport.once("error", reject);
     transport.listen(o.port, o.bind, () => {
@@ -74,7 +79,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     });
   });
 
-  const control = createControlServer({ engine, config: () => store.load(), selfName: o.name, agents, socketPath: store.socketPath });
+  const control = createControlServer({ engine, config: () => store.load(), selfName: o.name, agents,
+    socketPath: store.socketPath,
+    store,
+    pairing,
+    pairClient: client,
+    ...(o.approvals ? { approvals: o.approvals } : {}),
+  });
   try {
     await listenOnSocket(control, store.socketPath);
   } catch (err) {
