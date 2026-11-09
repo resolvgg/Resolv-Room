@@ -1,0 +1,10 @@
+{
+  "v": "0.1",
+  "id": "9d2e4a6c-7b8f-4c1d-a0e3-5f6a7b8c9d02",
+  "session_id": "c1b7d9e3-6e2f-4b4c-9d8e-2f3a4b5c6d7e",
+  "type": "session.status",
+  "from": { "peer": "notebook-b", "agent": "hermes" },
+  "to": { "peer": "notebook-a" },
+  "ts": "2026-11-09T15:30:12Z",
+  "payload": { "state": "awaiting_approval" }
+}

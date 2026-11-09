@@ -1,0 +1,4 @@
+{
+  "mode": "ask",
+  "capabilities": { "read": true, "write": false, "exec": false, "network": false }
+}

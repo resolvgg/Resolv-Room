@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:resolvroom:0.1:permission-profile",
+  "title": "Permission profile",
+  "description": "What one peer may do on this machine. Defined and stored by the receiving machine; never sent by the requester.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "capabilities"],
+  "properties": {
+    "mode": { "$ref": "urn:resolvroom:0.1:common#/$defs/mode" },
+    "capabilities": { "$ref": "urn:resolvroom:0.1:common#/$defs/capabilities" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roots": {
+          "description": "Absolute folders that auto mode may use without prompting. Ignored in ask mode (every access prompts).",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "extra_deny": {
+          "description": "Additional glob patterns that are always denied, on top of the built-in hard deny list.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "out_of_scope": {
+      "description": "What auto mode does for an action outside the scope. Default: ask.",
+      "enum": ["ask", "deny"],
+      "default": "ask"
+    },
+    "ask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_s": { "type": "integer", "minimum": 5, "maximum": 3600, "default": 120 },
+        "remember": {
+          "description": "never: every action prompts. session: an approval 'for this session' is remembered until the session closes.",
+          "enum": ["never", "session"],
+          "default": "never"
+        }
+      }
+    },
+    "expires_at": {
+      "description": "When this profile stops applying (auto mode then behaves as ask). Required for auto mode; null means no expiry and must be written explicitly.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "mode": { "const": "auto" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "required": ["scope", "expires_at"],
+        "properties": {
+          "expires_at": true,
+          "scope": {
+            "required": ["roots"],
+            "properties": {
+              "roots": { "minItems": 1 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

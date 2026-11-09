@@ -1,0 +1,28 @@
+{
+  "v": "0.1",
+  "listen": { "port": 7777 },
+  "ceiling": "auto",
+  "auto_requires_tag": true,
+  "default_limits": { "max_rounds": 12, "max_duration_s": 900, "idle_timeout_s": 120 },
+  "peers": [
+    {
+      "peer": "notebook-a",
+      "added_at": "2026-11-09T13:55:00Z",
+      "profile": {
+        "mode": "ask",
+        "capabilities": { "read": true, "write": false, "exec": false, "network": false },
+        "ask": { "timeout_s": 120, "remember": "session" }
+      }
+    },
+    {
+      "peer": "notebook-c",
+      "added_at": "2026-11-09T13:56:00Z",
+      "profile": {
+        "mode": "auto",
+        "capabilities": { "read": true, "write": true, "exec": false, "network": false },
+        "scope": { "roots": ["/home/dev/projects/checkout"] },
+        "expires_at": "2026-11-09T22:00:00Z"
+      }
+    }
+  ]
+}

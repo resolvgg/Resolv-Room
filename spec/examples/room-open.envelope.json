@@ -1,0 +1,18 @@
+{
+  "v": "0.1",
+  "id": "9d2e4a6c-7b8f-4c1d-a0e3-5f6a7b8c9d01",
+  "session_id": "c1b7d9e3-6e2f-4b4c-9d8e-2f3a4b5c6d7e",
+  "type": "session.open",
+  "from": { "peer": "notebook-a", "agent": "claude-code" },
+  "to": "all",
+  "ts": "2026-11-09T15:30:00Z",
+  "payload": {
+    "kind": "room",
+    "goal": "Find why the checkout records duplicate purchases and agree on a fix.",
+    "participants": [
+      { "peer": "notebook-a", "agent": "claude-code" },
+      { "peer": "notebook-b", "agent": "hermes" }
+    ],
+    "limits": { "max_rounds": 12, "max_duration_s": 900, "idle_timeout_s": 120 }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "v": "0.1",
+  "id": "6f1c2b8e-3c1d-4f0a-9a52-0d7b2a1e0005",
+  "session_id": "b0a6c8f2-5d1e-4a3b-8c7d-1e2f3a4b5c6d",
+  "seq": 4,
+  "type": "session.close",
+  "from": { "peer": "notebook-a", "agent": "claude-code" },
+  "to": "all",
+  "ts": "2026-11-09T14:00:20Z",
+  "payload": {
+    "reason": "done",
+    "summary": "Consult finished: proposal confirmed by the logs."
+  }
+}

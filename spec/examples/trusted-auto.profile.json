@@ -1,0 +1,10 @@
+{
+  "mode": "auto",
+  "capabilities": { "read": true, "write": true, "exec": false, "network": false },
+  "scope": {
+    "roots": ["/home/dev/projects/checkout"],
+    "extra_deny": ["**/secrets/**"]
+  },
+  "out_of_scope": "ask",
+  "expires_at": "2026-11-09T22:00:00Z"
+}

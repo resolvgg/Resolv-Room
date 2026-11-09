@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:resolvroom:0.1:common",
+  "title": "Resolv Room common definitions",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "mode": {
+      "description": "Permission mode. ask: prompt the local human. auto: act without prompting inside the granted scope.",
+      "enum": ["ask", "auto"]
+    },
+    "peerName": {
+      "description": "Tailscale node name (MagicDNS short name or FQDN).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"
+    },
+    "agentName": {
+      "description": "Name of an agent on a peer, for example claude-code, openclaw or hermes.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peer"],
+      "properties": {
+        "peer": { "$ref": "#/$defs/peerName" },
+        "agent": { "$ref": "#/$defs/agentName" }
+      }
+    },
+    "limits": {
+      "description": "Session limits enforced by the host. Omitted fields use the defaults of the session kind (see protocol spec).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_rounds": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "max_duration_s": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "idle_timeout_s": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "max_tokens": {
+          "description": "Advisory budget. Enforced only when the runner can measure usage.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "capabilities": {
+      "description": "Kinds of action that may be performed at all. In ask mode each permitted action still prompts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write", "exec", "network"],
+      "properties": {
+        "read": { "type": "boolean" },
+        "write": { "type": "boolean" },
+        "exec": { "type": "boolean" },
+        "network": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:resolvroom:0.1:envelope",
+  "title": "Resolv Room envelope",
+  "description": "The unit exchanged between daemons. The payload depends on `type`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "session_id", "type", "from", "to", "ts", "payload"],
+  "properties": {
+    "v": { "const": "0.1" },
+    "id": { "$ref": "urn:resolvroom:0.1:common#/$defs/uuid" },
+    "session_id": { "$ref": "urn:resolvroom:0.1:common#/$defs/uuid" },
+    "seq": {
+      "description": "Position in the session log. Stamped by the host; absent on envelopes a participant sends to the host.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "in_reply_to": { "$ref": "urn:resolvroom:0.1:common#/$defs/uuid" },
+    "type": {
+      "enum": [
+        "session.open",
+        "session.accept",
+        "session.reject",
+        "session.status",
+        "message",
+        "question",
+        "handoff",
+        "result",
+        "error",
+        "session.close"
+      ]
+    },
+    "from": { "$ref": "urn:resolvroom:0.1:common#/$defs/address" },
+    "to": {
+      "oneOf": [
+        { "$ref": "urn:resolvroom:0.1:common#/$defs/address" },
+        { "const": "all" }
+      ]
+    },
+    "ts": { "$ref": "urn:resolvroom:0.1:common#/$defs/timestamp" },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "session.open" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/sessionOpen" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.accept" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/sessionAccept" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.reject" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/sessionReject" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.status" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/sessionStatus" } } }
+    },
+    {
+      "if": {
+        "properties": { "type": { "enum": ["message", "question", "handoff"] } },
+        "required": ["type"]
+      },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/text" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "result" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/result" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/error" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.close" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/sessionClose" } } }
+    }
+  ],
+  "$defs": {
+    "sessionOpen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "goal"],
+      "properties": {
+        "kind": { "enum": ["consult", "room"] },
+        "goal": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "participants": {
+          "description": "Room only: every agent taking part, including the host.",
+          "type": "array",
+          "items": { "$ref": "urn:resolvroom:0.1:common#/$defs/address" },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "limits": { "$ref": "urn:resolvroom:0.1:common#/$defs/limits" },
+        "mode_cap": {
+          "description": "The host asks the receiver to run this session at most at this mode. It can only lower the receiver's mode, never raise it.",
+          "$ref": "urn:resolvroom:0.1:common#/$defs/mode"
+        }
+      }
+    },
+    "sessionAccept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effective"],
+      "properties": {
+        "effective": {
+          "description": "What the receiver will allow in this session. Folder paths are never disclosed.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "capabilities"],
+          "properties": {
+            "mode": { "$ref": "urn:resolvroom:0.1:common#/$defs/mode" },
+            "capabilities": { "$ref": "urn:resolvroom:0.1:common#/$defs/capabilities" }
+          }
+        }
+      }
+    },
+    "sessionReject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "not_allowed",
+            "busy",
+            "unsupported_version",
+            "limits_unacceptable",
+            "user_declined",
+            "agent_unavailable"
+          ]
+        },
+        "detail": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "sessionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "description": "awaiting_approval and awaiting_human carry no detail on purpose: what is being asked stays on the receiving machine.",
+          "enum": ["working", "awaiting_approval", "awaiting_human", "idle"]
+        }
+      }
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "format": { "enum": ["text", "markdown"], "default": "markdown" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": { "enum": ["solved", "partial", "unsolved"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "format": { "enum": ["text", "markdown"], "default": "markdown" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "protocol_violation",
+            "unsupported_version",
+            "limit_exceeded",
+            "permission_denied",
+            "agent_failed",
+            "internal"
+          ]
+        },
+        "message": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "sessionClose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "enum": ["done", "cancelled", "error", "limit_reached", "peer_unavailable", "rejected"]
+        },
+        "summary": { "type": "string", "maxLength": 100000 }
+      }
+    }
+  }
+}

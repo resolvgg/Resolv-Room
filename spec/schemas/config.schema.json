@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:resolvroom:0.1:config",
+  "title": "Local daemon config",
+  "description": "Stored at ~/.resolvroom/config.json. Written by `resolvroom init` and `resolvroom pair`. Agents can never read or write it (hard deny list).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "peers"],
+  "properties": {
+    "v": { "const": "0.1" },
+    "listen": {
+      "description": "The daemon binds only to the Tailscale interface of this machine, never to 0.0.0.0.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 7777 }
+      }
+    },
+    "ceiling": {
+      "description": "Highest mode this machine will ever grant to anyone. Default: ask.",
+      "$ref": "urn:resolvroom:0.1:common#/$defs/mode"
+    },
+    "auto_requires_tag": {
+      "description": "When true (default), a peer can only run in auto mode if its Tailscale node carries tag:resolvroom-auto.",
+      "type": "boolean",
+      "default": true
+    },
+    "default_limits": { "$ref": "urn:resolvroom:0.1:common#/$defs/limits" },
+    "peers": {
+      "description": "Allowlist. A peer that is not listed here is refused, even if it has the right Tailscale tag.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["peer", "profile", "added_at"],
+        "properties": {
+          "peer": { "$ref": "urn:resolvroom:0.1:common#/$defs/peerName" },
+          "profile": { "$ref": "urn:resolvroom:0.1:permission-profile" },
+          "added_at": { "$ref": "urn:resolvroom:0.1:common#/$defs/timestamp" }
+        }
+      }
+    }
+  }
+}

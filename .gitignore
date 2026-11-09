@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+.resolvroom/
+
+# generated copy of /spec/schemas
+packages/protocol/schemas/

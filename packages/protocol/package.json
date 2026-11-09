@@ -1,0 +1,35 @@
+{
+  "name": "@resolvroom/protocol",
+  "version": "0.0.0",
+  "description": "Resolv Room protocol: types, JSON Schema validators and the reference permission resolver.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "prebuild": "node scripts/copy-schemas.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "node scripts/copy-schemas.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/copy-schemas.mjs && vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

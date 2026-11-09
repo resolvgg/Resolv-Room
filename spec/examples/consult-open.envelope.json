@@ -1,0 +1,15 @@
+{
+  "v": "0.1",
+  "id": "6f1c2b8e-3c1d-4f0a-9a52-0d7b2a1e0001",
+  "session_id": "b0a6c8f2-5d1e-4a3b-8c7d-1e2f3a4b5c6d",
+  "type": "session.open",
+  "from": { "peer": "notebook-a", "agent": "claude-code" },
+  "to": { "peer": "notebook-b", "agent": "hermes" },
+  "ts": "2026-11-09T14:00:00Z",
+  "payload": {
+    "kind": "consult",
+    "goal": "Review my proposal for the duplicate purchase events at checkout and tell me if the logs on your side support it.",
+    "limits": { "max_rounds": 1, "max_duration_s": 300 },
+    "mode_cap": "ask"
+  }
+}

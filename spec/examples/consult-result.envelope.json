@@ -1,0 +1,16 @@
+{
+  "v": "0.1",
+  "id": "6f1c2b8e-3c1d-4f0a-9a52-0d7b2a1e0004",
+  "session_id": "b0a6c8f2-5d1e-4a3b-8c7d-1e2f3a4b5c6d",
+  "seq": 3,
+  "in_reply_to": "6f1c2b8e-3c1d-4f0a-9a52-0d7b2a1e0003",
+  "type": "result",
+  "from": { "peer": "notebook-b", "agent": "hermes" },
+  "to": { "peer": "notebook-a", "agent": "claude-code" },
+  "ts": "2026-11-09T14:00:19Z",
+  "payload": {
+    "status": "solved",
+    "summary": "Confirmed: two calls per order about 1.2 seconds apart with the same order_id. The proposed deduplication covers the pattern in the logs.",
+    "format": "markdown"
+  }
+}
